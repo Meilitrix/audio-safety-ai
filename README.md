@@ -1,303 +1,261 @@
-# 🚗 Audio Safety AI — Ride-Sharing Safety System
+# Audio Safety AI — Ride-Sharing Safety Monitor
 
-An AI system that **listens to sounds inside a car**, classifies them as **SAFE** or **DANGER**, and **sends an alert to an emergency centre** when danger is detected.
-
----
-
-## 📖 What Does This System Do?
-
-```
-┌─────────────┐     ┌──────────────┐     ┌───────────────┐     ┌──────────────────┐
-│  MICROPHONE │ ──▶ │ EXTRACT      │ ──▶ │ AI MODEL      │ ──▶ │ ALERT SYSTEM     │
-│  (listens)  │     │ MFCC FEATURES│     │ SAFE or DANGER│     │ → Emergency Ctr  │
-└─────────────┘     └──────────────┘     └───────────────┘     └──────────────────┘
-```
-
-1. **Listens** to 3-second audio clips from a microphone
-2. **Extracts** audio fingerprints (MFCCs — like a musical chord chart)
-3. **Classifies** the sound using a trained AI model
-4. **Alerts** the emergency centre if danger is detected
+An AI system that **listens to sounds inside a car** in real-time, classifies them as **SAFE** or **DANGER**, and displays a live risk gauge. Built for ride-sharing safety monitoring.
 
 ---
 
-## 📁 Project Structure — What Each File Does
+## What Does This System Do?
+
+```
+┌──────────────┐     ┌────────────────────┐     ┌──────────────────┐
+│  BROWSER MIC │ ──▶ │  YAMNet (521 class │ ──▶ │  RISK GAUGE +    │
+│  (live audio)│     │  audio classifier) │     │  LIVE TRANSCRIPT │
+└──────────────┘     │                    │     └──────────────────┘
+                     │  + Energy analysis │
+                     │  + Pitch analysis  │
+                     │  + Web Speech API  │
+                     └────────────────────┘
+```
+
+1. **Listens** to live audio from your browser microphone
+2. **Classifies** every 3-second chunk using Google YAMNet (recognises 521 sound types)
+3. **Transcribes** speech in real-time using the Web Speech API (browser-native)
+4. **Detects** screams, shouts, crashes, sudden silence, and distress keywords
+5. **Displays** a live risk gauge (levels 0–4), chunk analysis, and timestamped transcription
+6. **Records** the full journey as a single WAV file for playback or later review
+
+---
+
+## Architecture
+
+| Component | Technology | Where It Runs |
+|---|---|---|
+| Sound classification | Google YAMNet (TensorFlow Hub) | Server (Python) |
+| Speech transcription | Web Speech API | Browser (JavaScript) |
+| Energy analysis | Custom (numpy) | Server (Python) |
+| Pitch analysis | librosa pyIN | Server (Python) |
+| Risk gauge | Rolling buffer (5 chunks) | Server + Frontend |
+| Distress keywords | 100+ keywords (EN/UR/HI/PA/PS) | Browser (JavaScript) |
+| Backend | Flask (threaded) | Server (Python) |
+| Frontend | Native HTML/CSS/JS | Browser |
+
+---
+
+## Project Structure
 
 ```
 audio_safety_ai/
 │
-├── config.py              ⚙️  "Control panel" — all settings in one place
-│                           (sample rate, file paths, alert URL, etc.)
+├── server.py              Flask backend — serves frontend, handles chunk
+│                           upload, classification, journey management
 │
-├── data_generator.py      🔊 Creates FAKE training data
-│                           Safe = engine hums + calm tones
-│                           Danger = shouting + crashes + screams
+├── index.html             Self-contained frontend — gauge, transcription,
+│                           chunk analysis, waveform, timers, journey archive
 │
-├── feature_extractor.py   🎵 Converts audio into numbers (MFCCs)
-│                           that the AI model can understand
+├── yamnet_engine.py       AI brain — YAMNet classification + energy + pitch
+│                           analysis + signal fusion → SAFE or DANGER
 │
-├── model.py               🧠 The brain — trains a Random Forest
-│                           classifier and saves it to disk
+├── yamnet_classes.py      521 embedded YAMNet class names (AudioSet)
 │
-├── alert_system.py        🚨 Sends emergency alerts (HTTP webhook)
-│                           when danger is detected
+├── whisper_engine.py      Speech-to-text engine (legacy — replaced by
+│                           Web Speech API, kept as reference)
 │
-├── detector.py            🎤 Listens through your microphone in
-│                           real-time and calls the AI on each clip
+├── test_mic.py            Diagnostic tool — tests mic, YAMNet, and
+│                           transcription from the terminal
 │
-├── main.py                🎯 THE FILE YOU RUN — gives you a menu
-│                           to do everything step by step
+├── requirements.txt       Python dependencies
 │
-├── requirements.txt       📦 List of Python packages to install
+├── config.py              Original pipeline config (legacy)
+├── detector.py            Original mic detector (legacy)
+├── data_generator.py      Synthetic data generator (legacy)
+├── feature_extractor.py   MFCC extractor (legacy)
+├── model.py               Random Forest trainer (legacy)
+├── alert_system.py        Webhook alert system (legacy)
+├── main.py                Original CLI menu (legacy)
 │
-├── data/
-│   ├── safe_sounds/       📂 Folder for safe audio clips (generated)
-│   └── danger_sounds/     📂 Folder for danger audio clips (generated)
-│
-└── models/
-    └── safety_classifier.pkl  💾 The trained model (saved after training)
+├── saved_journeys/        Recorded journey WAV files (created at runtime)
+└── _audio_chunks/         Temporary 3-sec chunks (created at runtime)
 ```
 
 ---
 
-## 🚀 Step-by-Step Guide — How to Run This on Your Computer
+## Quick Start
 
 ### Prerequisites
 
-- **Python 3.8 or newer** installed ([download here](https://www.python.org/downloads/))
-- A working **microphone** on your computer
-- An internet connection (to install packages)
+- **Python 3.10+** installed
+- A working **microphone**
+- **Chrome or Edge** browser (required for Web Speech API)
 
----
-
-### Step 1: Open a Terminal
-
-**Windows:**
-- Press `Win + R`, type `cmd`, press Enter
-- Or search for "PowerShell" in the Start menu
-
-**Mac:**
-- Press `Cmd + Space`, type `terminal`, press Enter
-
----
-
-### Step 2: Navigate to the Project Folder
+### Installation
 
 ```bash
-cd path/to/audio_safety_ai
-```
+# 1. Clone the repo
+git clone https://github.com/Meilitrix/audio-safety-ai.git
+cd audio_safety_ai
 
-Replace `path/to/` with the actual location of the `audio_safety_ai` folder on your computer.
-
-**Example (Windows):**
-```bash
-cd C:\Users\YourName\Documents\audio_safety_ai
-```
-
-**Example (Mac/Linux):**
-```bash
-cd ~/Documents/audio_safety_ai
-```
-
----
-
-### Step 3: Create a Virtual Environment (Recommended)
-
-A virtual environment keeps this project's packages separate from your other projects.
-
-**Windows:**
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-**Mac/Linux:**
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-You should see `(venv)` appear at the start of your terminal prompt. This means the virtual environment is active.
-
----
-
-### Step 4: Install the Required Packages
-
-```bash
+# 2. Install dependencies
 pip install -r requirements.txt
 ```
 
-This installs all the libraries the project needs:
-- `numpy` — math operations
-- `scikit-learn` — the machine learning library (trains the AI)
-- `librosa` — audio processing (extracts MFCCs)
-- `sounddevice` — records from your microphone
-- `soundfile` — saves audio as .wav files
-- `requests` — sends HTTP alerts to the emergency centre
-- `joblib` — saves/loads the trained model
-
-This might take 2-5 minutes depending on your internet speed.
-
----
-
-### Step 5: Run the Application
+### Run
 
 ```bash
-python main.py
+# Set environment variable to suppress TensorFlow warnings (Windows)
+$env:TF_CPP_MIN_LOG_LEVEL="3"
+
+# Start the server
+python server.py
 ```
 
-You'll see a menu:
+Open **http://localhost:5000** in Chrome or Edge.
 
+---
+
+## How to Use
+
+### Start Monitoring (AI Analysis + Transcription)
+
+1. Click **START MONITOR**
+2. Allow microphone access when the browser asks
+3. The AI analyses every 3-second audio chunk:
+   - **Gauge** (left) shows current risk level (0 = Normal → 4 = Critical)
+   - **Chunk Analysis** (right) shows per-chunk SAFE/DANGER readings
+   - **Transcription window** shows live speech-to-text with distress keyword tags
+   - **Waveform** displays real-time audio visualization
+
+### Start Recording (Journey Save)
+
+1. Click **START RECORDING** to begin saving audio
+2. Click **STOP RECORDING** to save the journey as a single WAV file
+3. Recorded journeys appear in the **Journey Audio Archive** at the bottom
+
+### Monitoring and Recording are Independent
+
+- You can monitor without recording (AI analysis only)
+- You can record without monitoring (raw audio capture only)
+- Both can run simultaneously
+
+---
+
+## Detection Layers
+
+### Layer 1: YAMNet Sound Classification
+Google's pre-trained model recognises 521 sound types from the AudioSet dataset. Only these trigger DANGER:
+
+| Class | Description |
+|---|---|
+| Scream (386) | High-pitched vocal distress |
+| Shriek (387) | Sharp piercing vocalisation |
+| Shout (10) | Aggressive raised voice |
+| Yell (13) | Loud vocal outcry |
+| Crash (393) | Physical impact sound |
+| Collapse (394) | Structural falling sound |
+
+Everything else (speech, traffic, music, engine, horns) → SAFE.
+
+### Layer 2: Energy Analysis
+- **Sudden silence** — detects when audio energy drops sharply (possible vehicle stop)
+- **Loud burst** — detects sudden energy spikes
+
+### Layer 3: Pitch Analysis
+- Estimates fundamental frequency (F0) using librosa
+- Normal speech: 85–255 Hz
+- Screaming: 400–1500+ Hz
+
+### Layer 4: Speech Transcription (Browser)
+- Web Speech API transcribes speech in real-time
+- Scans for 100+ distress keywords in English, Urdu, Hindi, Punjabi, and Pashto
+- Keywords highlighted in red tags in the transcription window
+
+---
+
+## Distress Keywords (Multilingual)
+
+| Language | Examples |
+|---|---|
+| English | help, stop, no, let me go, I'm scared |
+| Urdu (Roman) | bachao, madad, ruko, mujhe chhod do, police bulao |
+| Urdu (Script) | بچاؤ, مدد, رکو, نہیں, مجھے چھوڑو |
+| Punjabi | bacha lao, madad karo, menu chhod do |
+| Pashto | madad, wadre, police |
+
+---
+
+## Risk Gauge Levels
+
+| Level | Name | Meaning |
+|---|---|---|
+| 0 | NORMAL | All signals safe |
+| 1 | CONCERNING | Minor anomaly detected |
+| 2 | ELEVATED | Multiple signals active |
+| 3 | HIGH RISK | Strong danger indicators |
+| 4 | CRITICAL | Sustained distress detected |
+
+The gauge uses a rolling buffer of the last 5 chunks to smooth out momentary spikes.
+
+---
+
+## API Endpoints
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/` | Serve the frontend |
+| POST | `/upload_chunk` | Receive 3-sec WAV, classify, return result |
+| POST | `/start_session` | Begin a monitoring session |
+| POST | `/stop_session` | End session, combine chunks into journey |
+| GET | `/journeys` | List saved journey files |
+| GET | `/saved_journeys/<name>` | Serve a journey WAV for playback |
+| DELETE | `/journeys/<name>` | Delete a specific journey |
+| POST | `/delete_all_journeys` | Delete all saved journeys |
+
+---
+
+## Diagnostic Tool
+
+Test your microphone and AI pipeline from the terminal:
+
+```bash
+$env:TF_CPP_MIN_LOG_LEVEL="3"
+python test_mic.py
 ```
-============================================================
-  🚗  AUDIO SAFETY AI — Ride-Sharing Safety System
-============================================================
 
-  [1] Generate synthetic training data
-  [2] Train the AI model
-  [3] Test on a single audio file
-  [4] Start real-time safety monitor
-  [5] Run full pipeline (generate → train → monitor)
-  [0] Quit
-```
+This will:
+1. Detect your microphone
+2. Record a test sample and show energy levels
+3. Run YAMNet classification
+4. Start live monitoring (speak, then try screaming or saying "help")
 
 ---
 
-### Step 6: Follow the Menu
+## Troubleshooting
 
-#### First time? Use option [5] — it does everything automatically:
-
-1. **Generates** 100 fake audio clips (50 safe + 50 danger)
-2. **Trains** the AI model on those clips
-3. **Starts** listening through your microphone
-
-#### Or do it step by step:
-
-**Option [1] — Generate Data:**
-Creates synthetic audio clips so the AI has something to learn from.
-- Safe sounds = low rumbles + soft tones (engine, radio, calm talk)
-- Danger sounds = loud bursts + sharp spikes (shouting, crashes)
-
-**Option [2] — Train the Model:**
-Teaches the AI to tell safe from danger.
-- Loads all audio clips
-- Extracts MFCC features (audio fingerprints)
-- Trains a Random Forest classifier
-- Shows you accuracy on a test set
-- Saves the model to `models/safety_classifier.pkl`
-
-**Option [3] — Test a Single File:**
-Point the AI at any `.wav` file and see what it thinks.
-
-**Option [4] — Start Live Monitor:**
-The AI starts listening through your microphone every 3 seconds.
-- If it hears something safe → prints "✅ SAFE"
-- If it hears danger → prints "🚨 DANGER" and sends an alert
-
----
-
-## ⚙️ Configuration
-
-Open `config.py` to change settings:
-
-| Setting | Default | What It Does |
-|---------|---------|-------------|
-| `AUDIO_DURATION` | 3 | Seconds per audio clip |
-| `N_MFCC` | 20 | Number of audio features to extract |
-| `N_SAMPLES_PER_CLASS` | 50 | How many fake clips to generate per category |
-| `CONFIDENCE_THRESHOLD` | 0.6 | Minimum confidence to trigger alert (0.0–1.0) |
-| `ALERT_WEBHOOK_URL` | (placeholder) | URL of your emergency centre's API |
-| `ALERT_ENABLED` | True | Set `False` for demo mode (no real HTTP requests) |
-| `CONTINUOUS_ALERT_SECONDS` | 5 | Cooldown between repeated alerts |
-
----
-
-## 🚨 How the Alert System Works
-
-When danger is detected:
-
-1. The AI sends an **HTTP POST request** to your emergency centre's webhook URL
-2. The payload looks like this:
-
-```json
-{
-  "event": "DANGER_DETECTED",
-  "timestamp": "2026-09-03T14:30:00.000000",
-  "confidence": 0.87,
-  "severity": "HIGH",
-  "details": {
-    "description": "Dangerous sound detected in vehicle",
-    "audio_type": "aggressive_shouting_or_crash"
-  }
-}
-```
-
-3. The alert has a **cooldown** (default 5 seconds) to prevent spam
-4. If `ALERT_ENABLED = False`, alerts are logged but NOT sent (demo mode)
-
-**To connect to a real emergency centre:**
-- Replace `ALERT_WEBHOOK_URL` in `config.py` with the actual API endpoint
-- Set `ALERT_ENABLED = True`
-
----
-
-## 🧪 Testing Without Real Data
-
-The synthetic data generator creates audio that is *structurally different* between safe and danger:
-- **Safe** = low frequencies, smooth waves, quiet
-- **Danger** = high frequencies, sharp spikes, loud
-
-This means the model will show **high accuracy on synthetic data** because the patterns are distinct. For production use, you'd replace the synthetic data with real recordings.
-
----
-
-## 🔄 How to Use Your Own Real Audio Data
-
-1. Collect `.wav` files of real car sounds
-2. Place safe clips in `data/safe_sounds/`
-3. Place danger clips in `data/danger_sounds/`
-4. Re-run training (option [2])
-
-The system automatically picks up all `.wav` files in those folders.
-
----
-
-## ❓ Troubleshooting
-
-**"No module named 'librosa'"**
-→ Make sure you ran `pip install -r requirements.txt`
-
-**"No model found" error**
-→ You need to train the model first (option [1] then [2], or just [5])
+**"Speech recognition not supported"**
+→ Use Chrome or Edge. Firefox/Safari don't support Web Speech API.
 
 **Microphone not working**
-→ Check that your OS allows Python to access the microphone
-→ On Windows: Settings → Privacy → Microphone → allow Python
+→ Check browser permissions. On Windows: Settings → Privacy → Microphone → allow browser.
 
-**"Could not connect to webhook URL"**
-→ This is normal if you haven't set up a real emergency centre endpoint
-→ Set `ALERT_ENABLED = False` in `config.py` for demo mode
+**"No module named 'tensorflow'"**
+→ Run `pip install -r requirements.txt`
 
----
+**YAMNet loading slowly on first run**
+→ Normal — downloads the model (~30 seconds). Cached after first load.
 
-## 📚 Key Concepts Explained Simply
-
-**MFCC (Mel-Frequency Cepstral Coefficients):**
-Think of it like a fingerprint for sound. Just as your fingerprint uniquely identifies you, MFCCs uniquely characterise a sound. The AI compares fingerprints to decide if a sound is safe or dangerous.
-
-**Random Forest:**
-A collection of 100 simple decision trees. Each tree votes on whether a sound is safe or danger. The majority wins. It's like asking 100 people and going with the most popular answer.
-
-**Webhook:**
-A URL that your emergency centre provides. When we send an HTTP POST request to that URL, their system receives the alert automatically.
+**Transcription not appearing**
+→ Make sure you're speaking loud enough. The browser mic signal can be quiet — the system amplifies audio automatically, but very quiet input may not transcribe.
 
 ---
 
-## 📝 License
+## Tech Stack
+
+- **Backend:** Python, Flask, TensorFlow, TensorFlow Hub, librosa, numpy
+- **Frontend:** Native HTML5, CSS3, JavaScript (no frameworks)
+- **AI Models:** Google YAMNet (audio classification), Web Speech API (transcription)
+- **Audio Capture:** ScriptProcessorNode (raw PCM), browser microphone
+
+---
+
+## License
 
 This project is for educational and development purposes.
-For production deployment in a ride-sharing application, additional considerations include:
-- Real-world data collection and labelling
-- Model robustness testing
-- Latency optimisation
-- Redundancy and fail-safes
-- Legal and privacy compliance

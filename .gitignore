@@ -36,8 +36,10 @@ ai_result.json
 *.onnx
 models/
 
-# ── Backups ──
+# ── Backups & setup scripts ──
 *_backup*
+github_login.bat
+github_setup.bat
 
 # ── Logs ──
 *.log
