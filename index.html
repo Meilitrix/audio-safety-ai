@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Audio Safety AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0F172A;--bg2:#020617;--card:#1E293B;--border:#334155;
+  --green:#4ADE80;--red:#EF4444;--white:#FFFFFF;--muted:#64748B;
+  --text:#CBD5E1;--accent:#6366F1;
+  --lvl0:#22C55E;--lvl1:#84CC16;--lvl2:#EAB308;--lvl3:#F97316;--lvl4:#EF4444;
+}
+html,body{
+  background:var(--bg);color:var(--white);
+  font-family:'Inter',system-ui,sans-serif;
+  min-height:100vh;overflow-x:hidden;
+}
+body{display:flex;justify-content:center;padding:16px 12px 40px}
+.card{
+  width:100%;max-width:420px;
+  background:linear-gradient(180deg,#1E293B 0%,var(--bg) 120px);
+  border-radius:20px;padding:0 16px 20px;
+  min-height:calc(100vh - 56px);position:relative;overflow:hidden;
+}
+
+/* Header */
+.hdr{text-align:center;padding:16px 0 6px}
+.hdr h1{font-size:13px;font-weight:900;letter-spacing:4px}
+.hdr p{font-size:9px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-top:2px}
+.hdr-line{height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);margin-top:8px;border:none;transition:background .3s}
+.hdr-line.danger{background:linear-gradient(90deg,transparent,var(--red),transparent)}
+
+/* Top area: gauge + chunks */
+.top-row{display:flex;gap:10px;margin:10px 0 6px;align-items:flex-start}
+.gauge-col{flex:0 0 42%;position:relative}
+.chunks-col{flex:1;min-width:0}
+
+/* Small gauge */
+.gauge-wrap{position:relative;width:100%;aspect-ratio:2/1.15}
+.gauge-wrap svg{width:100%;height:100%}
+.gauge-needle{transform-origin:150px 130px;transition:transform 1.2s cubic-bezier(.4,.2,.2,1)}
+.gauge-center-label{
+  position:absolute;bottom:4px;left:50%;transform:translateX(-50%);
+  text-align:center;pointer-events:none;
+}
+.gauge-level{font-size:22px;font-weight:900;letter-spacing:2px;line-height:1}
+.gauge-label{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-top:1px}
+
+/* Chunk analysis panel */
+.chunks-panel{
+  background:var(--bg2);border:1px solid #1E293B;border-radius:10px;
+  padding:8px 10px;height:130px;overflow-y:auto;
+  font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.7;
+}
+.chunks-panel::-webkit-scrollbar{width:3px}
+.chunks-panel::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.chunks-hdr{
+  color:var(--accent);font-weight:700;font-size:8px;letter-spacing:2px;
+  text-transform:uppercase;margin-bottom:4px;
+}
+.c-safe{color:var(--green)}.c-danger{color:var(--red)}
+.c-time{color:#475569}.c-summary{color:var(--accent);font-weight:700}
+.c-idle{color:var(--muted)}
+
+/* Status row */
+.status-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:10px;color:var(--muted)}
+.status-row .val{font-weight:700;color:var(--text)}
+
+/* Buttons */
+.btn-row{display:flex;gap:8px;margin-top:8px}
+.btn{
+  flex:1;padding:11px 8px;border-radius:10px;font-size:11px;font-weight:700;
+  letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;
+  border:2px solid transparent;transition:all .2s;text-align:center;
+}
+.btn-mon-start{background:var(--green);color:var(--bg);border-color:var(--green)}
+.btn-mon-stop{background:transparent;color:var(--red);border-color:var(--red)}
+.btn-rec-start{background:var(--white);color:var(--bg);border-color:var(--white)}
+.btn-rec-stop{background:transparent;color:var(--red);border-color:var(--red)}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+
+/* Waveform */
+.wave-box{
+  width:100%;height:70px;background:var(--bg2);border:1px solid #1E293B;
+  border-radius:12px;overflow:hidden;margin:6px 0;position:relative;
+}
+#waveCanvas{width:100%;height:100%;display:block}
+.wave-overlay{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:rgba(15,23,42,.85);transition:opacity .4s;
+}
+.wave-overlay.hidden{opacity:0;pointer-events:none}
+.wave-overlay .ico{font-size:20px;margin-bottom:2px}
+.wave-overlay .txt{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase}
+
+/* Split timers */
+.timer-row{display:flex;justify-content:space-between;padding:2px 4px;font-size:12px;font-weight:200;font-variant-numeric:tabular-nums;letter-spacing:2px}
+.timer-lbl{font-size:8px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;font-weight:400}
+.timer-val{color:var(--text)}
+
+/* Transcription window */
+.trans-box{
+  background:var(--bg2);border:1px solid #1E293B;border-radius:10px;
+  padding:10px 12px;margin:6px 0;min-height:120px;max-height:200px;overflow-y:auto;
+}
+.trans-box::-webkit-scrollbar{width:3px}
+.trans-box::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+.trans-hdr{
+  font-size:8px;font-weight:700;color:var(--accent);letter-spacing:2px;
+  text-transform:uppercase;margin-bottom:8px;
+}
+.trans-entry{margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #1E293B}
+.trans-entry:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.trans-time{font-family:'JetBrains Mono',monospace;font-size:9px;color:#475569}
+.trans-status{
+  display:inline-block;font-size:8px;font-weight:700;letter-spacing:1px;
+  text-transform:uppercase;padding:1px 6px;border-radius:3px;margin-left:6px;
+}
+.ts-safe{background:#22C55E20;color:var(--green)}
+.ts-danger{background:#EF444420;color:var(--red)}
+.ts-ambient{background:#64748B20;color:var(--muted)}
+.trans-text{font-size:12px;color:var(--text);margin-top:3px;line-height:1.4}
+.trans-kw{
+  background:var(--red);color:#fff;padding:1px 5px;border-radius:3px;
+  font-size:9px;font-weight:700;margin-left:4px;
+}
+.trans-empty{text-align:center;padding:16px 0;font-size:11px;color:var(--muted)}
+
+/* Bottom controls */
+.ctrl-row{display:flex;gap:8px;margin-top:8px}
+.btn-sm{
+  flex:1;padding:9px 8px;border-radius:8px;font-size:10px;font-weight:700;
+  letter-spacing:1px;text-transform:uppercase;cursor:pointer;
+  background:transparent;border:1px solid var(--border);color:var(--muted);
+  transition:all .2s;
+}
+.btn-sm:hover{border-color:var(--text);color:var(--text)}
+.btn-del{border-color:#EF4444;color:#EF4444}
+.btn-del:hover{background:#EF444420}
+
+/* Journey Archive */
+.archive{background:var(--bg2);border:1px solid #1E293B;border-radius:12px;padding:14px;margin:10px 0}
+.archive-hdr{font-size:10px;font-weight:700;color:var(--accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+.j-item{background:var(--bg);border:1px solid #1E293B;border-radius:8px;padding:10px;margin-bottom:8px}
+.j-item .j-name{font-size:11px;font-weight:700;color:var(--text);margin-bottom:2px}
+.j-item .j-meta{font-size:9px;color:var(--muted);margin-bottom:6px}
+.j-item audio{width:100%;height:32px}
+.archive-empty{text-align:center;padding:12px 0;font-size:11px;color:var(--muted)}
+.stats{display:flex;justify-content:space-between;padding:4px 0;font-size:10px;color:var(--muted);letter-spacing:.5px}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="hdr">
+    <h1>AUDIO SAFETY AI</h1>
+    <p>YAMNet + Web Speech API</p>
+    <hr class="hdr-line" id="hdrLine">
+  </div>
+
+  <!-- ═══ TOP: GAUGE + CHUNK ANALYSIS ═══ -->
+  <div class="top-row">
+    <div class="gauge-col">
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 300 160">
+          <path d="M30,130 A120,120 0 0,1 55.7,60.8 L73.5,73.8 A95,95 0 0,0 55,130 Z" fill="#22C55E" opacity=".7"/>
+          <path d="M55.7,60.8 A120,120 0 0,1 122.9,16.7 L127.2,41.3 A95,95 0 0,0 73.5,73.8 Z" fill="#84CC16" opacity=".7"/>
+          <path d="M122.9,16.7 A120,120 0 0,1 177.1,16.7 L172.8,41.3 A95,95 0 0,0 127.2,41.3 Z" fill="#EAB308" opacity=".7"/>
+          <path d="M177.1,16.7 A120,120 0 0,1 244.3,60.8 L226.5,73.8 A95,95 0 0,0 172.8,41.3 Z" fill="#F97316" opacity=".7"/>
+          <path d="M244.3,60.8 A120,120 0 0,1 270,130 L245,130 A95,95 0 0,0 226.5,73.8 Z" fill="#EF4444" opacity=".7"/>
+          <line x1="30" y1="130" x2="55" y2="130" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <line x1="55.7" y1="60.8" x2="73.5" y2="73.8" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <line x1="122.9" y1="16.7" x2="127.2" y2="41.3" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <line x1="150" y1="10" x2="150" y2="35" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <line x1="177.1" y1="16.7" x2="172.8" y2="41.3" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <line x1="244.3" y1="60.8" x2="226.5" y2="73.8" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <line x1="270" y1="130" x2="245" y2="130" stroke="#fff" stroke-width="1.5" opacity=".5"/>
+          <text x="38" y="118" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">0</text>
+          <text x="72" y="58" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">1</text>
+          <text x="150" y="28" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">2</text>
+          <text x="228" y="58" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">3</text>
+          <text x="262" y="118" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">4</text>
+          <g class="gauge-needle" id="gaugeNeedle" transform="rotate(-90,150,130)">
+            <line x1="150" y1="130" x2="150" y2="42" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="150" cy="130" r="6" fill="#fff"/>
+          </g>
+        </svg>
+        <div class="gauge-center-label">
+          <div class="gauge-level" id="gaugeLevel" style="color:var(--lvl0)">0</div>
+          <div class="gauge-label" id="gaugeLabel" style="color:var(--muted)">NORMAL</div>
+        </div>
+      </div>
+    </div>
+    <div class="chunks-col">
+      <div class="chunks-panel" id="chunksPanel">
+        <div class="chunks-hdr">CHUNK ANALYSIS</div>
+        <div id="chunksLog"><span class="c-idle">Waiting for audio...</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ STATUS ROW ═══ -->
+  <div class="status-row">
+    <div>Monitor: <span class="val" id="monStatus">OFF</span></div>
+    <div>Chunks: <span class="val" id="monChunks">0</span></div>
+    <div>Rec: <span class="val" id="recStatus">OFF</span></div>
+  </div>
+
+  <!-- ═══ CONTROL BUTTONS ═══ -->
+  <div class="btn-row">
+    <button class="btn btn-mon-start" id="monBtn" onclick="toggleMonitor()">START MONITOR</button>
+    <button class="btn btn-rec-start" id="recBtn" onclick="toggleRecord()">START RECORDING</button>
+  </div>
+
+  <!-- ═══ WAVEFORM ═══ -->
+  <div class="wave-box">
+    <canvas id="waveCanvas"></canvas>
+    <div class="wave-overlay" id="overlay">
+      <div class="ico">🎤</div>
+      <div class="txt">Tap Monitor to start AI analysis</div>
+    </div>
+  </div>
+
+  <!-- ═══ SPLIT TIMERS ═══ -->
+  <div class="timer-row">
+    <div>
+      <div class="timer-lbl">Monitor Time</div>
+      <div class="timer-val" id="monTimer">00:00</div>
+    </div>
+    <div style="text-align:right">
+      <div class="timer-lbl">Recording Time</div>
+      <div class="timer-val" id="recTimer">00:00</div>
+    </div>
+  </div>
+
+  <!-- ═══ TRANSCRIPTION WINDOW ═══ -->
+  <div class="trans-box" id="transBox">
+    <div class="trans-hdr">LIVE TRANSCRIPTION</div>
+    <div id="transLog"><div class="trans-empty">Start monitoring to see live transcription</div></div>
+  </div>
+
+  <!-- ═══ CONTROLS ═══ -->
+  <div class="ctrl-row">
+    <button class="btn-sm btn-del" onclick="deleteAllRecordings()">Delete All Recordings</button>
+    <button class="btn-sm" onclick="loadJourneys()">Refresh Journeys</button>
+  </div>
+
+  <div class="stats">
+    <span id="statJourneys">Journeys: 0</span>
+    <span id="statTime">—</span>
+  </div>
+
+  <!-- Journey Archive -->
+  <div class="archive" id="archive">
+    <div class="archive-hdr">JOURNEY AUDIO ARCHIVE</div>
+    <div id="archiveList"><div class="archive-empty">No journeys saved yet</div></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+const SERVER = window.location.origin;
+const CHUNK_SEC = 3;
+const LEVEL_NAMES = ["NORMAL","CONCERNING","ELEVATED","HIGH RISK","CRITICAL"];
+const LEVEL_COLORS = ["#22C55E","#84CC16","#EAB308","#F97316","#EF4444"];
+
+// ── State ──
+let audioCtx = null, micStream = null, analyser = null, processor = null;
+let isMonitoring = false, isRecActive = false;
+let monChunkCount = 0;
+let monChunkBuf = [];
+let journeyId = "";
+let recStart = 0, monStart = 0, recTimerInt = null, monTimerInt = null, animId = null;
+let transEntries = [];
+let chunkEntries = [];
+let currentRiskLevel = 0;
+
+// ── DOM ──
+const $ = id => document.getElementById(id);
+const canvas = $("waveCanvas"), ctx = canvas.getContext("2d");
+const monBtn = $("monBtn"), recBtn = $("recBtn");
+const overlay = $("overlay");
+const hdrLine = $("hdrLine");
+const gaugeNeedle = $("gaugeNeedle");
+const gaugeLevel = $("gaugeLevel"), gaugeLabel = $("gaugeLabel");
+const monStatusEl = $("monStatus"), recStatusEl = $("recStatus");
+const monChunksEl = $("monChunks");
+const monTimerEl = $("monTimer"), recTimerEl = $("recTimer");
+const transLog = $("transLog"), chunksLog = $("chunksLog");
+
+// ═══════════════════════════════════════════════════════════════════
+//  WEB SPEECH API — browser-native real-time transcription
+// ═══════════════════════════════════════════════════════════════════
+let recognition = null;
+let speechRecActive = false;
+let interimSpan = null;  // DOM element for live word-by-word text
+
+const DISTRESS_KW = [
+  "help","help me","stop","stop it","no","no no","don't","dont",
+  "please stop","please help","bachao","madad","ruko","ruko jao",
+  "nahi","nahi nahi","yahan ruk jao","ruk jao","stop here",
+  "let me go","let me out","i'm scared","im scared",
+  "police bulao","madad karo","bachao mujhe"
+];
+
+function initSpeechRec() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    addChunk("danger", "Speech recognition not supported — use Chrome or Edge");
+    return null;
+  }
+  const rec = new SR();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = "en-US";
+  rec.maxAlternatives = 1;
+
+  rec.onresult = (event) => {
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript.trim();
+      if (event.results[i].isFinal) {
+        addSpeechTranscript(transcript);
+      } else {
+        interim += transcript;
+      }
+    }
+    updateInterim(interim);
+  };
+
+  rec.onerror = (event) => {
+    if (event.error === "no-speech" || event.error === "aborted") return;
+    console.warn("Speech rec error:", event.error);
+  };
+
+  rec.onend = () => {
+    // Auto-restart if monitoring is still active
+    if (speechRecActive) {
+      try { rec.start(); } catch(e) {}
+    }
+  };
+
+  return rec;
+}
+
+function startSpeechRec() {
+  speechRecActive = true;
+  recognition = initSpeechRec();
+  if (!recognition) return;
+  try { recognition.start(); } catch(e) {}
+  // Add interim text span to transcription window
+  interimSpan = document.createElement("div");
+  interimSpan.style.cssText = "font-size:11px;color:var(--muted);font-style:italic;padding:2px 0";
+  transLog.appendChild(interimSpan);
+}
+
+function stopSpeechRec() {
+  speechRecActive = false;
+  if (recognition) {
+    try { recognition.stop(); } catch(e) {}
+    recognition = null;
+  }
+  interimSpan = null;
+}
+
+function updateInterim(text) {
+  if (interimSpan) interimSpan.textContent = text ? `🎙 ${text}...` : "";
+}
+
+function addSpeechTranscript(text) {
+  if (!text) return;
+  const t = new Date().toLocaleTimeString("en-GB");
+  const found = [];
+  const lower = text.toLowerCase();
+  for (const kw of DISTRESS_KW) {
+    if (lower.includes(kw)) found.push(kw);
+  }
+  const status = found.length > 0 ? "DANGER" : "SAFE";
+  addTransEntry(t, status, text, found);
+  // Clear interim
+  if (interimSpan) interimSpan.textContent = "";
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  GAUGE
+// ═══════════════════════════════════════════════════════════════════
+function setGauge(level) {
+  level = Math.max(0, Math.min(4, level));
+  currentRiskLevel = level;
+  const angle = -90 + (level / 4) * 180;
+  gaugeNeedle.setAttribute("transform", `rotate(${angle},150,130)`);
+  gaugeLevel.textContent = level;
+  gaugeLevel.style.color = LEVEL_COLORS[level];
+  gaugeLabel.textContent = LEVEL_NAMES[level];
+  gaugeLabel.style.color = LEVEL_COLORS[level];
+  hdrLine.className = "hdr-line" + (level >= 3 ? " danger" : "");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  SHARED MIC STREAM
+// ═══════════════════════════════════════════════════════════════════
+async function ensureMic() {
+  if (micStream && micStream.active) return micStream;
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false }
+  });
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = audioCtx.createMediaStreamSource(micStream);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.8;
+  src.connect(analyser);
+  return micStream;
+}
+
+function teardownMic() {
+  if (isMonitoring || isRecActive) return;
+  if (processor) { processor.disconnect(); processor = null; }
+  if (analyser) { analyser.disconnect(); analyser = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (animId) { cancelAnimationFrame(animId); animId = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  MONITOR (AI analysis)
+// ═══════════════════════════════════════════════════════════════════
+async function toggleMonitor() {
+  if (isMonitoring) stopMonitor();
+  else await startMonitor();
+}
+
+async function startMonitor() {
+  try {
+    await ensureMic();
+    const src = audioCtx.createMediaStreamSource(micStream);
+    const sr = audioCtx.sampleRate;
+    const needed = CHUNK_SEC * sr;
+
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    src.connect(processor);
+    processor.connect(audioCtx.destination);
+
+    processor.onaudioprocess = (e) => {
+      if (!isMonitoring) return;
+      monChunkBuf.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const total = monChunkBuf.reduce((s, b) => s + b.length, 0);
+
+      if (total >= needed) {
+        const combined = new Float32Array(total);
+        let off = 0;
+        for (const b of monChunkBuf) { combined.set(b, off); off += b.length; }
+        monChunkBuf = [];
+        let chunk = combined.slice(0, needed);
+        if (combined.length > needed) monChunkBuf.push(combined.slice(needed));
+
+        // ── Amplify audio — browser mic signal is very quiet ──
+        let peak = 0;
+        for (let i = 0; i < chunk.length; i++) peak = Math.max(peak, Math.abs(chunk[i]));
+        if (peak > 0.001) {
+          const gain = Math.min(0.7 / peak, 30);
+          for (let i = 0; i < chunk.length; i++) chunk[i] *= gain;
+        }
+
+        monChunkCount++;
+        const idx = monChunkCount;
+        monChunksEl.textContent = idx;
+        addChunk("idle", `Chunk #${idx} analysing...`);
+
+        const wav = buildWavFromFloat32(chunk, sr);
+        const blob = new Blob([wav], { type: "audio/wav" });
+        const fd = new FormData();
+        fd.append("journey_id", journeyId || "monitor");
+        fd.append("chunk_index", String(idx));
+        fd.append("audio", blob, "c.wav");
+        fetch(SERVER + "/upload_chunk", { method: "POST", body: fd })
+          .then(r => r.json())
+          .then(json => {
+            if (json.error && json.sound_name === "Server error") {
+              addChunk("danger", json.error);
+            } else {
+              handleResult(json);
+            }
+          })
+          .catch(err => addChunk("danger", "Chunk #" + idx + " failed: " + err.message));
+      }
+    };
+
+    journeyId = new Date().toISOString().replace(/[:.\-T]/g, "").slice(0, 14);
+    await fetch(SERVER + "/start_session", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ journey_id: journeyId })
+    });
+
+    isMonitoring = true;
+    monChunkCount = 0;
+    monChunkBuf = [];
+
+    // Start monitoring timer
+    monStart = Date.now();
+    monTimerInt = setInterval(updateMonTimer, 1000);
+
+    drawWave();
+
+    monBtn.textContent = "STOP MONITOR";
+    monBtn.className = "btn btn-mon-stop";
+    monStatusEl.textContent = "LIVE";
+    monStatusEl.style.color = "var(--green)";
+    overlay.classList.add("hidden");
+    setGauge(0);
+
+    // Start browser-native speech recognition
+    startSpeechRec();
+
+  } catch (err) {
+    console.error("Monitor error:", err);
+    addChunk("danger", "Monitor failed: " + err.message);
+  }
+}
+
+function stopMonitor() {
+  isMonitoring = false;
+  if (processor) { processor.disconnect(); processor = null; }
+  monChunkBuf = [];
+  if (monTimerInt) { clearInterval(monTimerInt); monTimerInt = null; }
+  stopSpeechRec();
+
+  if (journeyId) {
+    fetch(SERVER + "/stop_session", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ journey_id: journeyId })
+    }).then(r => r.json()).then(d => {
+      if (d.saved_path) addChunk("idle", "Journey saved");
+      loadJourneys();
+    }).catch(() => {});
+  }
+
+  monStatusEl.textContent = "OFF";
+  monStatusEl.style.color = "";
+  monBtn.textContent = "START MONITOR";
+  monBtn.className = "btn btn-mon-start";
+  setGauge(0);
+
+  teardownMic();
+  if (!isRecActive) {
+    overlay.classList.remove("hidden");
+    overlay.querySelector(".txt").textContent = "Tap Monitor to start AI analysis";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  RECORDING (saves journey)
+// ═══════════════════════════════════════════════════════════════════
+async function toggleRecord() {
+  if (isRecActive) stopRecord();
+  else await startRecord();
+}
+
+async function startRecord() {
+  try {
+    await ensureMic();
+    isRecActive = true;
+    recStart = Date.now();
+    recTimerInt = setInterval(updateRecTimer, 1000);
+
+    recBtn.textContent = "STOP RECORDING";
+    recBtn.className = "btn btn-rec-stop";
+    recStatusEl.textContent = "REC";
+    recStatusEl.style.color = "var(--red)";
+    overlay.classList.add("hidden");
+
+  } catch (err) {
+    console.error("Record error:", err);
+    addChunk("danger", "Record failed: " + err.message);
+  }
+}
+
+function stopRecord() {
+  isRecActive = false;
+  if (recTimerInt) { clearInterval(recTimerInt); recTimerInt = null; }
+
+  recBtn.textContent = "START RECORDING";
+  recBtn.className = "btn btn-rec-start";
+  recStatusEl.textContent = "OFF";
+  recStatusEl.style.color = "";
+
+  teardownMic();
+  if (!isMonitoring) {
+    overlay.classList.remove("hidden");
+    overlay.querySelector(".txt").textContent = "Tap Monitor to start AI analysis";
+    ctx.fillStyle = "#020617"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  HANDLE AI RESULT — drives gauge, chunks, transcription
+// ═══════════════════════════════════════════════════════════════════
+function handleResult(res) {
+  const isDanger = res.status === "DANGER";
+  const conf = (res.confidence * 100).toFixed(0);
+  const riskLevel = res.risk_level || 0;
+  const chunkRisk = res.chunk_risk || 0;
+
+  // Update gauge
+  setGauge(riskLevel);
+
+  // Chunk analysis entry
+  const icon = isDanger ? "!!" : "OK";
+  const cls = isDanger ? "c-danger" : "c-safe";
+  let detail = `#${monChunkCount} ${icon} ${res.status} [L${riskLevel}] ${res.sound_name} (${conf}%)`;
+  if (res.transcript) detail += ` "${res.transcript.slice(0, 30)}"`;
+  addChunk(cls, detail);
+
+  // Every 3 chunks: summary line with energy/risk
+  if (monChunkCount % 3 === 0) {
+    const summary = `--- After ${monChunkCount} chunks: Status=${res.status} | Risk Level=${riskLevel}/4 | Confidence=${conf}% | Chunk Risk=${chunkRisk}/4 ---`;
+    addChunk("c-summary", summary);
+  }
+
+  // Transcription is now handled by Web Speech API (browser-native)
+  // No longer adding entries from server results
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  WAV BUILDER
+// ═══════════════════════════════════════════════════════════════════
+function buildWavFromFloat32(samples, sr) {
+  const int16 = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    let s = Math.max(-1, Math.min(1, samples[i]));
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  return buildWav(int16, sr);
+}
+
+function buildWav(samples, sr) {
+  const bps=16, nc=1, br=sr*nc*bps/8, ba=nc*bps/8, ds=samples.length*bps/8;
+  const buf = new ArrayBuffer(44+ds), v = new DataView(buf);
+  function ws(o,s){for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))}
+  ws(0,"RIFF");v.setUint32(4,36+ds,true);ws(8,"WAVE");
+  ws(12,"fmt ");v.setUint32(16,16,true);v.setUint16(20,1,true);
+  v.setUint16(22,nc,true);v.setUint32(24,sr,true);v.setUint32(28,br,true);
+  v.setUint16(32,ba,true);v.setUint16(34,bps,true);
+  ws(36,"data");v.setUint32(40,ds,true);
+  let off=44;for(let i=0;i<samples.length;i++){v.setInt16(off,samples[i],true);off+=2}
+  return buf;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  WAVEFORM
+// ═══════════════════════════════════════════════════════════════════
+function drawWave() {
+  if (!isMonitoring || !analyser) return;
+  const bufLen = analyser.frequencyBinCount;
+  const timeData = new Uint8Array(bufLen);
+  const freqData = new Uint8Array(bufLen);
+
+  function draw() {
+    if (!isMonitoring) return;
+    animId = requestAnimationFrame(draw);
+    canvas.width = canvas.offsetWidth * 2;
+    canvas.height = canvas.offsetHeight * 2;
+
+    analyser.getByteTimeDomainData(timeData);
+    ctx.fillStyle = "#020617"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const color = LEVEL_COLORS[currentRiskLevel] || "#4ADE80";
+    const glow = color + "66";
+
+    ctx.strokeStyle = "#1E293B"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, canvas.height/2); ctx.lineTo(canvas.width, canvas.height/2); ctx.stroke();
+
+    ctx.lineWidth = 2.5; ctx.strokeStyle = color;
+    ctx.shadowColor = glow; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    const sw = canvas.width / bufLen;
+    let x = 0;
+    for (let i = 0; i < bufLen; i++) {
+      const y = (timeData[i] / 128) * canvas.height / 2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      x += sw;
+    }
+    ctx.lineTo(canvas.width, canvas.height/2);
+    ctx.stroke(); ctx.shadowBlur = 0;
+
+    analyser.getByteFrequencyData(freqData);
+    const bars = 18, bw = 3, mh = canvas.height * .25;
+    ctx.fillStyle = color; ctx.globalAlpha = .2;
+    for (let i = 0; i < bars; i++) {
+      const idx = Math.floor(i * bufLen / bars);
+      const bh = (freqData[idx] / 255) * mh;
+      ctx.fillRect(i*(bw+2)+4, canvas.height-bh, bw, bh);
+      ctx.fillRect(canvas.width-(i*(bw+2)+4+bw), canvas.height-bh, bw, bh);
+    }
+    ctx.globalAlpha = 1;
+  }
+  draw();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TRANSCRIPTION WINDOW
+// ═══════════════════════════════════════════════════════════════════
+function addTransEntry(time, status, text, keywords) {
+  transEntries.unshift({ time, status, text, keywords });
+  if (transEntries.length > 50) transEntries.pop();
+  renderTrans();
+}
+
+function renderTrans() {
+  if (!transEntries.length) {
+    transLog.innerHTML = '<div class="trans-empty">Start monitoring to see live transcription</div>';
+    return;
+  }
+  transLog.innerHTML = transEntries.map(e => {
+    let statusCls = "ts-ambient", statusTxt = "AMBIENT";
+    if (e.status === "SAFE") { statusCls = "ts-safe"; statusTxt = "SAFE"; }
+    else if (e.status === "DANGER") { statusCls = "ts-danger"; statusTxt = "DANGER"; }
+    let kwHtml = "";
+    if (e.keywords && e.keywords.length) {
+      kwHtml = e.keywords.map(k => `<span class="trans-kw">${k.toUpperCase()}</span>`).join("");
+    }
+    return `<div class="trans-entry">
+      <span class="trans-time">[${e.time}]</span>
+      <span class="trans-status ${statusCls}">${statusTxt}</span>
+      <div class="trans-text">"${e.text}" ${kwHtml}</div>
+    </div>`;
+  }).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  CHUNK ANALYSIS PANEL
+// ═══════════════════════════════════════════════════════════════════
+function addChunk(cls, msg) {
+  chunkEntries.unshift({ cls, msg });
+  if (chunkEntries.length > 50) chunkEntries.pop();
+  renderChunks();
+}
+
+function renderChunks() {
+  chunksLog.innerHTML = chunkEntries.map(e =>
+    `<div class="${e.cls}">${e.msg}</div>`
+  ).join("");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  TIMERS
+// ═══════════════════════════════════════════════════════════════════
+function updateMonTimer() {
+  const el = Math.floor((Date.now() - monStart) / 1000);
+  monTimerEl.textContent = String(Math.floor(el/60)).padStart(2,"0") + ":" + String(el%60).padStart(2,"0");
+}
+
+function updateRecTimer() {
+  const el = Math.floor((Date.now() - recStart) / 1000);
+  recTimerEl.textContent = String(Math.floor(el/60)).padStart(2,"0") + ":" + String(el%60).padStart(2,"0");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  DELETE ALL RECORDINGS
+// ═══════════════════════════════════════════════════════════════════
+function deleteAllRecordings() {
+  if (!confirm("Are you sure you want to delete all saved recordings? This cannot be undone.")) return;
+  fetch(SERVER + "/delete_all_journeys", { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        transEntries = [];
+        chunkEntries = [];
+        renderTrans();
+        renderChunks();
+        setGauge(0);
+        loadJourneys();
+      }
+    })
+    .catch(err => console.error("Delete all failed:", err));
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  JOURNEY ARCHIVE
+// ═══════════════════════════════════════════════════════════════════
+function loadJourneys() {
+  fetch(SERVER + "/journeys").then(r => r.json()).then(d => {
+    $("statJourneys").textContent = "Journeys: " + d.journeys.length;
+    if (!d.journeys.length) {
+      $("archiveList").innerHTML = '<div class="archive-empty">No journeys saved yet</div>';
+      return;
+    }
+    $("archiveList").innerHTML = d.journeys.map(j => `
+      <div class="j-item" id="j-${j.name}">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="j-name">${j.name}</div>
+          <button onclick="deleteJourney('${j.name}')" style="
+            background:transparent;border:1px solid #EF4444;color:#EF4444;
+            border-radius:6px;padding:3px 10px;font-size:9px;font-weight:700;
+            cursor:pointer;letter-spacing:1px;text-transform:uppercase;
+          ">Delete</button>
+        </div>
+        <div class="j-meta">${j.size_kb} KB - ${j.created}</div>
+        <audio controls preload="none" src="/saved_journeys/${j.name}"></audio>
+      </div>
+    `).join("");
+  }).catch(() => {});
+}
+
+function deleteJourney(name) {
+  if (!confirm("Delete " + name + "?")) return;
+  fetch(SERVER + "/journeys/" + name, { method: "DELETE" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const el = document.getElementById("j-" + name);
+        if (el) el.remove();
+        loadJourneys();
+      }
+    })
+    .catch(err => console.error("Delete failed:", err.message));
+}
+
+// ── Init ──
+loadJourneys();
+ctx.fillStyle = "#020617"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+</script>
+</body>
+</html>

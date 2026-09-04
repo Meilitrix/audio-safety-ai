@@ -1,0 +1,36 @@
+# ============================================
+# Audio Safety AI - Required Python Packages
+# ============================================
+# Install all of these with ONE command:
+#   pip install -r requirements.txt
+#
+# If that fails, install them one by one:
+#   pip install numpy
+#   pip install librosa
+#   etc.
+
+# --- Core math & data handling ---
+numpy>=1.23.0
+scikit-learn>=1.2.0
+
+# --- Audio processing ---
+librosa>=0.10.0
+sounddevice>=0.4.6
+soundfile>=0.12.0
+
+# --- Real-time alerting / HTTP requests ---
+requests>=2.28.0
+
+# --- Web server (single unified backend) ---
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# --- AI models ---
+tensorflow>=2.14.0
+tensorflow-hub>=0.15.0
+
+# Note: Transcription uses Web Speech API (browser-native, no pip package needed)
+# Whisper was replaced by Web Speech API for real-time stability
+
+# --- Optional: for saving/loading models ---
+joblib>=1.2.0
