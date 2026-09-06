@@ -395,7 +395,7 @@ if __name__ == "__main__":
     print("=" * 56)
     print("  🛡️  AUDIO SAFETY AI — Native Web Server")
     print("=" * 56)
-    print(f"  Frontend :  http://localhost:5000")
+    print(f"  Frontend :  http://localhost:5004")
     print(f"  AI Core  :  YAMNet + Web Speech API (browser)")
     print(f"  Threshold:  {CONFIDENCE_THRESHOLD*100:.0f}% confidence")
     print(f"  Smoothing:  {REQUIRED_CONSECUTIVE} consecutive chunks")
@@ -408,4 +408,4 @@ if __name__ == "__main__":
     preload_thread = threading.Thread(target=preload_models, daemon=True)
     preload_thread.start()
 
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=5004, debug=False, threaded=True)

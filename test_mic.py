@@ -4,8 +4,7 @@ test_mic.py — Microphone & AI Diagnostic Tool
 Run this in your terminal to verify:
   1. Your microphone is actually capturing audio
   2. YAMNet is processing real sound
-  3. Whisper is transcribing speech
-  4. Distress keywords are being detected
+  3. Distress keywords are being detected
 
 Usage:
     python test_mic.py
@@ -29,7 +28,7 @@ print("=" * 60)
 print()
 
 # ── Step 1: Check microphone ────────────────────────────────────────
-print("[1/4] Checking microphone...")
+print("[1/3] Checking microphone...")
 try:
     import sounddevice as sd
     devices = sd.query_devices()
@@ -71,7 +70,7 @@ except Exception as e:
 
 # ── Step 2: Check YAMNet ────────────────────────────────────────────
 print()
-print("[2/4] Loading YAMNet model...")
+print("[2/3] Loading YAMNet model...")
 try:
     from yamnet_engine import classify_audio, _load_model
     _load_model()
@@ -91,31 +90,9 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
-# ── Step 3: Check Whisper ───────────────────────────────────────────
+# ── Step 3: Live monitoring ─────────────────────────────────────────
 print()
-print("[3/4] Loading Whisper model (tiny)...")
-try:
-    from whisper_engine import transcribe_audio, detect_distress
-    text, conf, lang = transcribe_audio(audio, sr=22050)
-    print(f"  ✅ Whisper loaded!")
-    print(f"     Transcript: \"{text}\" (confidence: {conf*100:.1f}%, lang: {lang})")
-
-    if text:
-        has_distress, keywords, kw_conf = detect_distress(text)
-        if has_distress:
-            print(f"     🚨 DISTRESS KEYWORDS FOUND: {keywords}")
-        else:
-            print(f"     ✅ No distress keywords in transcript.")
-    else:
-        print(f"     (No speech detected in the 1-second sample — that's normal)")
-
-except Exception as e:
-    print(f"  ❌ Whisper error: {e}")
-    print(f"     (This is OK — Whisper is optional. YAMNet still works.)")
-
-# ── Step 4: Live monitoring ─────────────────────────────────────────
-print()
-print("[4/4] Starting LIVE monitoring (speak, then scream for testing)...")
+print("[3/3] Starting LIVE monitoring (speak, then scream for testing)...")
 print("      Press Ctrl+C to stop.")
 print()
 print("  " + "─" * 56)

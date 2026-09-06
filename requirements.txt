@@ -30,7 +30,6 @@ tensorflow>=2.14.0
 tensorflow-hub>=0.15.0
 
 # Note: Transcription uses Web Speech API (browser-native, no pip package needed)
-# Whisper was replaced by Web Speech API for real-time stability
 
 # --- Optional: for saving/loading models ---
 joblib>=1.2.0

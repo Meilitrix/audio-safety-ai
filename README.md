@@ -57,11 +57,8 @@ audio_safety_ai/
 │
 ├── yamnet_classes.py      521 embedded YAMNet class names (AudioSet)
 │
-├── whisper_engine.py      Speech-to-text engine (legacy — replaced by
-│                           Web Speech API, kept as reference)
-│
-├── test_mic.py            Diagnostic tool — tests mic, YAMNet, and
-│                           transcription from the terminal
+├── test_mic.py            Diagnostic tool — tests mic and YAMNet
+│                           from the terminal
 │
 ├── requirements.txt       Python dependencies
 │
@@ -108,7 +105,7 @@ $env:TF_CPP_MIN_LOG_LEVEL="3"
 python server.py
 ```
 
-Open **http://localhost:5000** in Chrome or Edge.
+Open **http://localhost:5004** in Chrome or Edge.
 
 ---
 

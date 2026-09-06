@@ -128,6 +128,9 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
   background:var(--red);color:#fff;padding:1px 5px;border-radius:3px;
   font-size:9px;font-weight:700;margin-left:4px;
 }
+.trans-kw-s3{background:var(--red);color:#fff}
+.trans-kw-s2{background:var(--lvl3);color:#fff}
+.trans-kw-s1{background:var(--lvl2);color:#000}
 .trans-empty{text-align:center;padding:16px 0;font-size:11px;color:var(--muted)}
 
 /* Bottom controls */
@@ -269,7 +272,7 @@ const LEVEL_NAMES = ["NORMAL","CONCERNING","ELEVATED","HIGH RISK","CRITICAL"];
 const LEVEL_COLORS = ["#22C55E","#84CC16","#EAB308","#F97316","#EF4444"];
 
 // ── State ──
-let audioCtx = null, micStream = null, analyser = null, processor = null;
+let audioCtx = null, micStream = null, analyser = null, processor = null, recProcessor = null;
 let isMonitoring = false, isRecActive = false;
 let monChunkCount = 0;
 let monChunkBuf = [];
@@ -299,13 +302,86 @@ let recognition = null;
 let speechRecActive = false;
 let interimSpan = null;  // DOM element for live word-by-word text
 
-const DISTRESS_KW = [
-  "help","help me","stop","stop it","no","no no","don't","dont",
-  "please stop","please help","bachao","madad","ruko","ruko jao",
-  "nahi","nahi nahi","yahan ruk jao","ruk jao","stop here",
-  "let me go","let me out","i'm scared","im scared",
-  "police bulao","madad karo","bachao mujhe"
-];
+// Distress keyword dictionary — severity-weighted, multilingual
+// Loaded from distress_keywords.json structure
+const DISTRESS_KW_SEV = {
+  // ── Level 3: Critical — Direct distress / life threat ──
+  // English — Critical distress
+  "help":3,"help me":3,"please help":3,"somebody help":3,
+  "let me go":3,"let me out":3,"let her go":3,
+  "i'm scared":3,"im scared":3,"i'm afraid":3,"i am scared":3,
+  // English — Weapons
+  "he has a knife":3,"he has a gun":3,"he's armed":3,
+  "weapon":3,"knife":3,"gun":3,
+  // English — Critical distress (cont.)
+  "rape":3,"kidnap":3,"kill":3,"murder":3,"die":3,
+  // Urdu/Hindi — Critical distress
+  "bachao":3,"bachao mujhe":3,"bachao please":3,
+  "madad":3,"madad karo":3,"madad chahiye":3,
+  "mujhe jaane do":3,"mujhe chhod do":3,"mujhe choro":3,
+  "mujhe mat maro":3,"please mujhe chhod do":3,
+  "main shor machaungi":3,"main chilllaungi":3,
+  "police ko bulao":3,"police bulao":3,"police ko khabar do":3,
+  "allah bachaye":3,"allah ki qasam":3,
+  // Urdu/Hindi — Weapons
+  "maar diya":3,"chaku":3,"bandook":3,
+  // Urdu/Hindi — Critical distress (cont.)
+  "aghwa":3,"khoon":3,"qatal":3,"tezab":3,
+  // Urdu/Hindi — Sexual harassment
+  "rape karunga":3,"izzat loot lunga":3,"nangi karunga":3,"chhed chhad":3,
+  // Punjabi — Critical distress
+  "mainu chhad do":3,"mainu jaan do":3,"police nu bulao":3,
+  // Pashto — Critical distress
+  "raazama sara":3,"da madad":3,"police ra walay":3,
+  // ── Level 2: High — Aggressive commands / clear distress ──
+  // English — Commands / refusal
+  "stop":2,"stop it":2,"please stop":2,"stop right now":2,
+  "no":2,"no no":2,"no please":2,
+  "don't":2,"dont":2,"don't touch":2,"dont touch":2,
+  "get away":2,"get off":2,"leave me alone":2,
+  "what are you doing":2,"why are you doing this":2,
+  // Urdu/Hindi — Aggressive commands
+  "chup kar":2,"chup kar warna":2,"mun band kar":2,
+  "tameez se baat karo":2,"adab se baat kar":2,
+  "idhar ao":2,"idhar dekho":2,"mere paas aao":2,
+  "bhaago":2,"bhaago yahan se":2,
+  "yeh kya kar rahe ho":2,"yeh kya hai":2,
+  "ruko":2,"ruko jao":2,"bhai roko":2,"gaadi roko bhai":2,
+  // Urdu/Hindi — Commands / refusal
+  "nahi":2,"nahi nahi":2,"nahi please":2,
+  "mat chuo":2,"mujhe mat chuo":2,"haath mat lagao":2,
+  // Urdu/Hindi — Fear expression
+  "dar lag raha hai":2,"mujhe dar lag raha hai":2,
+  // Urdu/Hindi — Aggressive commands (cont.)
+  "tum kaun ho":2,"yeh kya tamasha hai":2,
+  // Urdu/Hindi — Intimidation / threats
+  "dekhta hai":2,"tujhe theek karunga":2,"tujhe dekh lunga":2,
+  "aan dekhunga":2,"tujhe chhodunga nahi":2,
+  // Urdu/Hindi — Insults
+  "bewaqoof":2,"kameena":2,"harami":2,"kutte":2,"saanp":2,"kamini":2,"randi":2,
+  // Urdu/Hindi — Sexual harassment
+  "tum bahut achhi lag rahi ho":2,"tumhari body":2,
+  "kapde utaro":2,"mere saath chalo":2,
+  // Punjabi — Aggressive commands / refusal
+  "ithe a":2,"mere kol a":2,"ki kar reha ain":2,"hatth na la":2,
+  // Pashto — Aggressive commands / insults / threats
+  "kham sha":2,"da keeda":2,"zama sara rasha":2,
+  // ── Level 1: Concerning — Context-dependent ──
+  // English — Context-dependent
+  "stop here":1,"pull over":1,"drive safe":1,
+  "slow down":1,"watch out":1,
+  "call the police":1,"call police":1,
+  "emergency":1,"hurt":1,"pain":1,
+  // Urdu/Hindi — Context-dependent
+  "yahan ruk jao":1,"ruk jao":1,"gaadi ruko":1,
+  "theek hai":1,"bas":1,"khatam karo":1,
+  "bahar niklo":1,"andar aao":1,
+  "jaldi karo":1,"der ho rahi hai":1,
+  // Punjabi — Context-dependent
+  "ithe ruko":1,
+  // Pashto — Context-dependent
+  "del me":1,"pa khpal ke":1
+};
 
 function initSpeechRec() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -376,10 +452,14 @@ function addSpeechTranscript(text) {
   const t = new Date().toLocaleTimeString("en-GB");
   const found = [];
   const lower = text.toLowerCase();
-  for (const kw of DISTRESS_KW) {
-    if (lower.includes(kw)) found.push(kw);
+  let maxSev = 0;
+  for (const kw in DISTRESS_KW_SEV) {
+    if (lower.includes(kw)) {
+      found.push(kw);
+      if (DISTRESS_KW_SEV[kw] > maxSev) maxSev = DISTRESS_KW_SEV[kw];
+    }
   }
-  const status = found.length > 0 ? "DANGER" : "SAFE";
+  const status = found.length > 0 ? (maxSev >= 3 ? "DANGER" : "SAFE") : "SAFE";
   addTransEntry(t, status, text, found);
   // Clear interim
   if (interimSpan) interimSpan.textContent = "";
@@ -567,6 +647,61 @@ async function startRecord() {
     recStart = Date.now();
     recTimerInt = setInterval(updateRecTimer, 1000);
 
+    const src = audioCtx.createMediaStreamSource(micStream);
+    const sr = audioCtx.sampleRate;
+    const needed = CHUNK_SEC * sr;
+    let recChunkBuf = [];
+    let recChunkCount = 0;
+
+    recProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+    src.connect(recProcessor);
+    recProcessor.connect(audioCtx.destination);
+
+    recProcessor.onaudioprocess = (e) => {
+      if (!isRecActive) return;
+      recChunkBuf.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      const total = recChunkBuf.reduce((s, b) => s + b.length, 0);
+
+      if (total >= needed) {
+        const combined = new Float32Array(total);
+        let off = 0;
+        for (const b of recChunkBuf) { combined.set(b, off); off += b.length; }
+        recChunkBuf = [];
+        let chunk = combined.slice(0, needed);
+        if (combined.length > needed) recChunkBuf.push(combined.slice(needed));
+
+        // Amplify audio
+        let peak = 0;
+        for (let i = 0; i < chunk.length; i++) peak = Math.max(peak, Math.abs(chunk[i]));
+        if (peak > 0.001) {
+          const gain = Math.min(0.7 / peak, 30);
+          for (let i = 0; i < chunk.length; i++) chunk[i] *= gain;
+        }
+
+        recChunkCount++;
+        const wav = buildWavFromFloat32(chunk, sr);
+        const blob = new Blob([wav], { type: "audio/wav" });
+        const fd = new FormData();
+        fd.append("journey_id", journeyId || "recording");
+        fd.append("chunk_index", String(recChunkCount));
+        fd.append("audio", blob, "c.wav");
+        fetch(SERVER + "/upload_chunk", { method: "POST", body: fd })
+          .then(r => r.json())
+          .then(json => {
+            if (json.error && json.sound_name === "Server error") {
+              addChunk("danger", json.error);
+            }
+          })
+          .catch(err => addChunk("danger", "Rec chunk #" + recChunkCount + " failed: " + err.message));
+      }
+    };
+
+    journeyId = new Date().toISOString().replace(/[:.\-T]/g, "").slice(0, 14);
+    await fetch(SERVER + "/start_session", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ journey_id: journeyId })
+    });
+
     recBtn.textContent = "STOP RECORDING";
     recBtn.className = "btn btn-rec-stop";
     recStatusEl.textContent = "REC";
@@ -581,12 +716,24 @@ async function startRecord() {
 
 function stopRecord() {
   isRecActive = false;
+  if (recProcessor) { recProcessor.disconnect(); recProcessor = null; }
   if (recTimerInt) { clearInterval(recTimerInt); recTimerInt = null; }
 
   recBtn.textContent = "START RECORDING";
   recBtn.className = "btn btn-rec-start";
   recStatusEl.textContent = "OFF";
   recStatusEl.style.color = "";
+
+  // Save journey on server
+  if (journeyId) {
+    fetch(SERVER + "/stop_session", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ journey_id: journeyId })
+    }).then(r => r.json()).then(d => {
+      if (d.saved_path) addChunk("idle", "Journey saved");
+      loadJourneys();
+    }).catch(() => {});
+  }
 
   teardownMic();
   if (!isMonitoring) {
@@ -721,7 +868,10 @@ function renderTrans() {
     else if (e.status === "DANGER") { statusCls = "ts-danger"; statusTxt = "DANGER"; }
     let kwHtml = "";
     if (e.keywords && e.keywords.length) {
-      kwHtml = e.keywords.map(k => `<span class="trans-kw">${k.toUpperCase()}</span>`).join("");
+      kwHtml = e.keywords.map(k => {
+        const s = DISTRESS_KW_SEV[k] || 1;
+        return `<span class="trans-kw trans-kw-s${s}">${k.toUpperCase()}</span>`;
+      }).join("");
     }
     return `<div class="trans-entry">
       <span class="trans-time">[${e.time}]</span>
