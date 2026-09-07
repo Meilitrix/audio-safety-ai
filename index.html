@@ -23,7 +23,7 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
 .card{
   width:100%;max-width:420px;
   background:linear-gradient(180deg,#1E293B 0%,var(--bg) 120px);
-  border-radius:20px;padding:0 16px 20px;
+  border-radius:20px;padding:0 16px 80px;
   min-height:calc(100vh - 56px);position:relative;overflow:hidden;
 }
 
@@ -34,21 +34,21 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
 .hdr-line{height:2px;background:linear-gradient(90deg,transparent,var(--green),transparent);margin-top:8px;border:none;transition:background .3s}
 .hdr-line.danger{background:linear-gradient(90deg,transparent,var(--red),transparent)}
 
-/* Top area: gauge + chunks */
+/* Top area: chunks only (gauge removed) */
 .top-row{display:flex;gap:10px;margin:10px 0 6px;align-items:flex-start}
-.gauge-col{flex:0 0 42%;position:relative}
 .chunks-col{flex:1;min-width:0}
 
-/* Small gauge */
-.gauge-wrap{position:relative;width:100%;aspect-ratio:2/1.15}
-.gauge-wrap svg{width:100%;height:100%}
-.gauge-needle{transform-origin:150px 130px;transition:transform 1.2s cubic-bezier(.4,.2,.2,1)}
-.gauge-center-label{
-  position:absolute;bottom:4px;left:50%;transform:translateX(-50%);
-  text-align:center;pointer-events:none;
-}
-.gauge-level{font-size:22px;font-weight:900;letter-spacing:2px;line-height:1}
-.gauge-label{font-size:8px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-top:1px}
+/* Split info panel: signals left, chunks right */
+.info-split{display:flex;gap:8px;margin:6px 0}
+.info-split-left{flex:0 0 45%;display:flex;flex-direction:column;gap:4px;justify-content:center}
+.info-split-right{flex:1;min-width:0}
+
+/* Signal chip rows */
+.sig-row{display:flex;gap:5px;justify-content:center}
+
+/* Old gauge hidden */
+.gauge-wrap{display:none}
+.gauge-center-label{display:none}
 
 /* Chunk analysis panel */
 .chunks-panel{
@@ -66,14 +66,52 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
 .c-time{color:#475569}.c-summary{color:var(--accent);font-weight:700}
 .c-idle{color:var(--muted)}
 
+/* Danger Dial Gauge */
+.dial-container{
+  background:linear-gradient(to bottom,#020617,#0f172a);border:1px solid #1E293B;
+  border-radius:16px;padding:12px 16px 8px;margin:8px 0;position:relative;overflow:hidden;
+  transition:border-color .5s,box-shadow .5s;
+}
+.dial-container.state-normal{border-color:#10b98140}
+.dial-container.state-concerning{border-color:#84CC1660}
+.dial-container.state-elevated{border-color:#EAB30860}
+.dial-container.state-high_risk{border-color:#F97316;background:#F9731608}
+.dial-container.state-critical{border-color:#EF4444;background:#EF444410;animation:pulse-critical 1.5s ease-in-out infinite}
+@keyframes pulse-critical{
+  0%,100%{border-color:#EF4444;box-shadow:0 0 0 transparent}
+  50%{border-color:#EF4444;box-shadow:0 0 16px #EF444450}
+}
+.dial-gauge-wrap{display:flex;justify-content:center;align-items:flex-end;height:120px;margin:4px 0}
+.dial-gauge-wrap svg{width:220px;height:120px}
+.dial-needle-wrapper{transform:rotate(-90deg);transform-origin:100px 100px;transition:transform .6s cubic-bezier(.4,0,.2,1)}
+.dial-arc-fill{transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1)}
+.dial-status-bar{display:flex;justify-content:center;align-items:center;gap:12px;padding:4px 8px;margin-top:2px}
+.dial-status-label{font-size:14px;font-weight:900;letter-spacing:2px;text-transform:uppercase;text-align:center}
+.dial-status-score{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text)}
+.dial-eq{display:flex;align-items:flex-end;justify-content:center;gap:2px;height:24px;padding:4px 12px;background:#0f172a80;border-radius:8px;margin:4px 0}
+.dial-eq-bar{width:6px;border-radius:2px 2px 0 0;transition:height .15s ease,background .3s ease;min-height:3px}
+.dial-signals{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;padding:4px 0}
+.sig-chip{
+  font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;
+  padding:2px 7px;border-radius:4px;letter-spacing:.5px;
+  background:#ffffff08;color:var(--muted);transition:all .3s ease;
+}
+.sig-chip.active{background:#ffffff15;color:var(--text)}
+.sig-chip.hot{background:#EF444430;color:var(--red)}
+.sig-chip.warm{background:#F9731630;color:#F97316}
+
 /* Status row */
 .status-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:10px;color:var(--muted)}
 .status-row .val{font-weight:700;color:var(--text)}
 
-/* Buttons */
-.btn-row{display:flex;gap:8px;margin-top:8px}
+/* Buttons — sticky at bottom */
+.btn-row{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);
+  width:100%;max-width:420px;display:flex;gap:8px;padding:10px 16px;
+  background:linear-gradient(to top,#020617 60%,transparent);z-index:100;
+}
 .btn{
-  flex:1;padding:11px 8px;border-radius:10px;font-size:11px;font-weight:700;
+  flex:1;padding:13px 8px;border-radius:10px;font-size:11px;font-weight:700;
   letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;
   border:2px solid transparent;transition:all .2s;text-align:center;
 }
@@ -165,43 +203,78 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
     <hr class="hdr-line" id="hdrLine">
   </div>
 
-  <!-- ═══ TOP: GAUGE + CHUNK ANALYSIS ═══ -->
-  <div class="top-row">
-    <div class="gauge-col">
-      <div class="gauge-wrap">
-        <svg viewBox="0 0 300 160">
-          <path d="M30,130 A120,120 0 0,1 55.7,60.8 L73.5,73.8 A95,95 0 0,0 55,130 Z" fill="#22C55E" opacity=".7"/>
-          <path d="M55.7,60.8 A120,120 0 0,1 122.9,16.7 L127.2,41.3 A95,95 0 0,0 73.5,73.8 Z" fill="#84CC16" opacity=".7"/>
-          <path d="M122.9,16.7 A120,120 0 0,1 177.1,16.7 L172.8,41.3 A95,95 0 0,0 127.2,41.3 Z" fill="#EAB308" opacity=".7"/>
-          <path d="M177.1,16.7 A120,120 0 0,1 244.3,60.8 L226.5,73.8 A95,95 0 0,0 172.8,41.3 Z" fill="#F97316" opacity=".7"/>
-          <path d="M244.3,60.8 A120,120 0 0,1 270,130 L245,130 A95,95 0 0,0 226.5,73.8 Z" fill="#EF4444" opacity=".7"/>
-          <line x1="30" y1="130" x2="55" y2="130" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <line x1="55.7" y1="60.8" x2="73.5" y2="73.8" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <line x1="122.9" y1="16.7" x2="127.2" y2="41.3" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <line x1="150" y1="10" x2="150" y2="35" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <line x1="177.1" y1="16.7" x2="172.8" y2="41.3" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <line x1="244.3" y1="60.8" x2="226.5" y2="73.8" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <line x1="270" y1="130" x2="245" y2="130" stroke="#fff" stroke-width="1.5" opacity=".5"/>
-          <text x="38" y="118" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">0</text>
-          <text x="72" y="58" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">1</text>
-          <text x="150" y="28" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">2</text>
-          <text x="228" y="58" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">3</text>
-          <text x="262" y="118" fill="#fff" font-size="8" font-weight="700" text-anchor="middle" opacity=".8">4</text>
-          <g class="gauge-needle" id="gaugeNeedle" transform="rotate(-90,150,130)">
-            <line x1="150" y1="130" x2="150" y2="42" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>
-            <circle cx="150" cy="130" r="6" fill="#fff"/>
-          </g>
-        </svg>
-        <div class="gauge-center-label">
-          <div class="gauge-level" id="gaugeLevel" style="color:var(--lvl0)">0</div>
-          <div class="gauge-label" id="gaugeLabel" style="color:var(--muted)">NORMAL</div>
+  <!-- ═══ DANGER DIAL GAUGE ═══ -->
+  <div class="dial-container state-normal" id="dialBar">
+    <div class="dial-gauge-wrap">
+      <svg viewBox="0 0 200 110">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#10b981"/>
+            <stop offset="30%" stop-color="#06b6d4"/>
+            <stop offset="55%" stop-color="#eab308"/>
+            <stop offset="75%" stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#ef4444"/>
+          </linearGradient>
+        </defs>
+        <!-- Background track -->
+        <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="#1e293b" stroke-width="14" stroke-linecap="round"/>
+        <!-- Colored arc (fills based on score) -->
+        <path id="dialArc" class="dial-arc-fill" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#gaugeGrad)" stroke-width="12" stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round"/>
+        <!-- Tick marks -->
+        <line x1="20" y1="100" x2="30" y2="100" stroke="#475569" stroke-width="2"/>
+        <line x1="44" y1="56" x2="52" y2="62" stroke="#475569" stroke-width="2"/>
+        <line x1="100" y1="20" x2="100" y2="30" stroke="#475569" stroke-width="2"/>
+        <line x1="156" y1="56" x2="148" y2="62" stroke="#475569" stroke-width="2"/>
+        <line x1="180" y1="100" x2="170" y2="100" stroke="#475569" stroke-width="2"/>
+        <!-- Needle (wrapper group handles rotation, inner elements are static) -->
+        <g id="dialNeedleWrapper" class="dial-needle-wrapper">
+          <line x1="100" y1="100" x2="100" y2="30" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="100" cy="100" r="6" fill="#06b6d4" stroke="#ffffff" stroke-width="2"/>
+        </g>
+      </svg>
+    </div>
+    <!-- Status text centered under gauge -->
+    <div class="dial-status-bar">
+      <div class="dial-status-label" id="dialLabel" style="color:var(--lvl0)">NORMAL</div>
+      <div class="dial-status-score">Score: <span id="dialScore">0.0</span></div>
+    </div>
+    <!-- Equalizer bars -->
+    <div class="dial-eq" id="dialEq">
+      <div class="dial-eq-bar" style="height:15%;background:#10b981"></div>
+      <div class="dial-eq-bar" style="height:25%;background:#10b981"></div>
+      <div class="dial-eq-bar" style="height:35%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:45%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:55%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:40%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:30%;background:#10b981"></div>
+      <div class="dial-eq-bar" style="height:20%;background:#10b981"></div>
+      <div class="dial-eq-bar" style="height:35%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:50%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:60%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:45%;background:#06b6d4"></div>
+      <div class="dial-eq-bar" style="height:30%;background:#10b981"></div>
+      <div class="dial-eq-bar" style="height:20%;background:#10b981"></div>
+      <div class="dial-eq-bar" style="height:10%;background:#10b981"></div>
+    </div>
+    <!-- Split: Signals left | Chunk Analysis right -->
+    <div class="info-split">
+      <div class="info-split-left">
+        <div class="sig-row">
+          <div class="sig-chip" id="sigWords">WORDS 0</div>
+          <div class="sig-chip" id="sigVoice">VOICE 0</div>
+          <div class="sig-chip" id="sigEvent">EVENT 0</div>
+        </div>
+        <div class="sig-row">
+          <div class="sig-chip" id="sigRep">REP 0.0</div>
+          <div class="sig-chip" id="sigEsc">ESC 0.0</div>
+          <div class="sig-chip" id="sigCmb">COMBO 0.0</div>
         </div>
       </div>
-    </div>
-    <div class="chunks-col">
-      <div class="chunks-panel" id="chunksPanel">
-        <div class="chunks-hdr">CHUNK ANALYSIS</div>
-        <div id="chunksLog"><span class="c-idle">Waiting for audio...</span></div>
+      <div class="info-split-right">
+        <div class="chunks-panel" id="chunksPanel">
+          <div class="chunks-hdr">CHUNK ANALYSIS</div>
+          <div id="chunksLog"><span class="c-idle">Waiting for audio...</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -211,12 +284,6 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
     <div>Monitor: <span class="val" id="monStatus">OFF</span></div>
     <div>Chunks: <span class="val" id="monChunks">0</span></div>
     <div>Rec: <span class="val" id="recStatus">OFF</span></div>
-  </div>
-
-  <!-- ═══ CONTROL BUTTONS ═══ -->
-  <div class="btn-row">
-    <button class="btn btn-mon-start" id="monBtn" onclick="toggleMonitor()">START MONITOR</button>
-    <button class="btn btn-rec-start" id="recBtn" onclick="toggleRecord()">START RECORDING</button>
   </div>
 
   <!-- ═══ WAVEFORM ═══ -->
@@ -264,6 +331,11 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
   </div>
 </div>
 
+<!-- ═══ STICKY BOTTOM BUTTONS ═══ -->
+<div class="btn-row">
+  <button class="btn btn-mon-start" id="monBtn" onclick="toggleMonitor()">START MONITOR</button>
+</div>
+
 <script>
 // ═══════════════════════════════════════════════════════════════════
 const SERVER = window.location.origin;
@@ -273,7 +345,7 @@ const LEVEL_COLORS = ["#22C55E","#84CC16","#EAB308","#F97316","#EF4444"];
 
 // ── State ──
 let audioCtx = null, micStream = null, analyser = null, processor = null, recProcessor = null;
-let isMonitoring = false, isRecActive = false;
+let isMonitoring = false;
 let monChunkCount = 0;
 let monChunkBuf = [];
 let journeyId = "";
@@ -285,11 +357,10 @@ let currentRiskLevel = 0;
 // ── DOM ──
 const $ = id => document.getElementById(id);
 const canvas = $("waveCanvas"), ctx = canvas.getContext("2d");
-const monBtn = $("monBtn"), recBtn = $("recBtn");
+const monBtn = $("monBtn");
 const overlay = $("overlay");
 const hdrLine = $("hdrLine");
-const gaugeNeedle = $("gaugeNeedle");
-const gaugeLevel = $("gaugeLevel"), gaugeLabel = $("gaugeLabel");
+const needleWrapper = $("dialNeedleWrapper");
 const monStatusEl = $("monStatus"), recStatusEl = $("recStatus");
 const monChunksEl = $("monChunks");
 const monTimerEl = $("monTimer"), recTimerEl = $("recTimer");
@@ -466,17 +537,11 @@ function addSpeechTranscript(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  GAUGE
+//  GAUGE (updates header line color only — main dial is separate)
 // ═══════════════════════════════════════════════════════════════════
 function setGauge(level) {
   level = Math.max(0, Math.min(4, level));
   currentRiskLevel = level;
-  const angle = -90 + (level / 4) * 180;
-  gaugeNeedle.setAttribute("transform", `rotate(${angle},150,130)`);
-  gaugeLevel.textContent = level;
-  gaugeLevel.style.color = LEVEL_COLORS[level];
-  gaugeLabel.textContent = LEVEL_NAMES[level];
-  gaugeLabel.style.color = LEVEL_COLORS[level];
   hdrLine.className = "hdr-line" + (level >= 3 ? " danger" : "");
 }
 
@@ -498,7 +563,7 @@ async function ensureMic() {
 }
 
 function teardownMic() {
-  if (isMonitoring || isRecActive) return;
+  if (isMonitoring) return;
   if (processor) { processor.disconnect(); processor = null; }
   if (analyser) { analyser.disconnect(); analyser = null; }
   if (audioCtx) { audioCtx.close(); audioCtx = null; }
@@ -575,6 +640,11 @@ async function startMonitor() {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ journey_id: journeyId })
     });
+    // Always enable recording during monitoring for training data
+    await fetch(SERVER + "/toggle_recording", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ recording: true })
+    });
 
     isMonitoring = true;
     monChunkCount = 0;
@@ -609,12 +679,15 @@ function stopMonitor() {
   if (monTimerInt) { clearInterval(monTimerInt); monTimerInt = null; }
   stopSpeechRec();
 
+  // Always save the journey (recording is always on during monitoring)
   if (journeyId) {
     fetch(SERVER + "/stop_session", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ journey_id: journeyId })
     }).then(r => r.json()).then(d => {
-      if (d.saved_path) addChunk("idle", "Journey saved");
+      if (d.saved_path) {
+        addChunk("idle", "Journey saved to recordings");
+      }
       loadJourneys();
     }).catch(() => {});
   }
@@ -625,122 +698,36 @@ function stopMonitor() {
   monBtn.className = "btn btn-mon-start";
   setGauge(0);
 
-  teardownMic();
-  if (!isRecActive) {
-    overlay.classList.remove("hidden");
-    overlay.querySelector(".txt").textContent = "Tap Monitor to start AI analysis";
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-//  RECORDING (saves journey)
-// ═══════════════════════════════════════════════════════════════════
-async function toggleRecord() {
-  if (isRecActive) stopRecord();
-  else await startRecord();
-}
-
-async function startRecord() {
-  try {
-    await ensureMic();
-    isRecActive = true;
-    recStart = Date.now();
-    recTimerInt = setInterval(updateRecTimer, 1000);
-
-    const src = audioCtx.createMediaStreamSource(micStream);
-    const sr = audioCtx.sampleRate;
-    const needed = CHUNK_SEC * sr;
-    let recChunkBuf = [];
-    let recChunkCount = 0;
-
-    recProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-    src.connect(recProcessor);
-    recProcessor.connect(audioCtx.destination);
-
-    recProcessor.onaudioprocess = (e) => {
-      if (!isRecActive) return;
-      recChunkBuf.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      const total = recChunkBuf.reduce((s, b) => s + b.length, 0);
-
-      if (total >= needed) {
-        const combined = new Float32Array(total);
-        let off = 0;
-        for (const b of recChunkBuf) { combined.set(b, off); off += b.length; }
-        recChunkBuf = [];
-        let chunk = combined.slice(0, needed);
-        if (combined.length > needed) recChunkBuf.push(combined.slice(needed));
-
-        // Amplify audio
-        let peak = 0;
-        for (let i = 0; i < chunk.length; i++) peak = Math.max(peak, Math.abs(chunk[i]));
-        if (peak > 0.001) {
-          const gain = Math.min(0.7 / peak, 30);
-          for (let i = 0; i < chunk.length; i++) chunk[i] *= gain;
-        }
-
-        recChunkCount++;
-        const wav = buildWavFromFloat32(chunk, sr);
-        const blob = new Blob([wav], { type: "audio/wav" });
-        const fd = new FormData();
-        fd.append("journey_id", journeyId || "recording");
-        fd.append("chunk_index", String(recChunkCount));
-        fd.append("audio", blob, "c.wav");
-        fetch(SERVER + "/upload_chunk", { method: "POST", body: fd })
-          .then(r => r.json())
-          .then(json => {
-            if (json.error && json.sound_name === "Server error") {
-              addChunk("danger", json.error);
-            }
-          })
-          .catch(err => addChunk("danger", "Rec chunk #" + recChunkCount + " failed: " + err.message));
-      }
-    };
-
-    journeyId = new Date().toISOString().replace(/[:.\-T]/g, "").slice(0, 14);
-    await fetch(SERVER + "/start_session", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ journey_id: journeyId })
-    });
-
-    recBtn.textContent = "STOP RECORDING";
-    recBtn.className = "btn btn-rec-stop";
-    recStatusEl.textContent = "REC";
-    recStatusEl.style.color = "var(--red)";
-    overlay.classList.add("hidden");
-
-  } catch (err) {
-    console.error("Record error:", err);
-    addChunk("danger", "Record failed: " + err.message);
-  }
-}
-
-function stopRecord() {
-  isRecActive = false;
-  if (recProcessor) { recProcessor.disconnect(); recProcessor = null; }
-  if (recTimerInt) { clearInterval(recTimerInt); recTimerInt = null; }
-
-  recBtn.textContent = "START RECORDING";
-  recBtn.className = "btn btn-rec-start";
-  recStatusEl.textContent = "OFF";
-  recStatusEl.style.color = "";
-
-  // Save journey on server
-  if (journeyId) {
-    fetch(SERVER + "/stop_session", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ journey_id: journeyId })
-    }).then(r => r.json()).then(d => {
-      if (d.saved_path) addChunk("idle", "Journey saved");
-      loadJourneys();
-    }).catch(() => {});
-  }
+  // Reset dial gauge
+  const db = $("dialBar");
+  db.className = "dial-container state-normal";
+  $("dialLabel").textContent = "NORMAL";
+  $("dialLabel").style.color = "var(--lvl0)";
+  $("dialScore").textContent = "0.0";
+  // Reset SVG needle and arc
+  if (needleWrapper) needleWrapper.style.transform = "rotate(-90deg)";
+  const arc = $("dialArc");
+  if (arc) arc.style.strokeDashoffset = "251.2";
+  // Reset equalizer bars
+  document.querySelectorAll("#dialEq .dial-eq-bar").forEach((bar, i) => {
+    bar.style.height = (15 + i * 3) + "%";
+    bar.style.background = i < 5 ? "#10b981" : "#06b6d4";
+  });
+  // Reset signal chips
+  ["sigWords","sigVoice","sigEvent","sigRep","sigEsc","sigCmb"].forEach(id => {
+    const el = $(id);
+    if (el) el.className = "sig-chip";
+  });
+  $("sigWords").textContent = "WORDS 0";
+  $("sigVoice").textContent = "VOICE 0";
+  $("sigEvent").textContent = "EVENT 0";
+  $("sigRep").textContent = "REP 0.0";
+  $("sigEsc").textContent = "ESC 0.0";
+  $("sigCmb").textContent = "COMBO 0.0";
 
   teardownMic();
-  if (!isMonitoring) {
-    overlay.classList.remove("hidden");
-    overlay.querySelector(".txt").textContent = "Tap Monitor to start AI analysis";
-    ctx.fillStyle = "#020617"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
+  overlay.classList.remove("hidden");
+  overlay.querySelector(".txt").textContent = "Tap Monitor to start AI analysis";
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -749,27 +736,105 @@ function stopRecord() {
 function handleResult(res) {
   const isDanger = res.status === "DANGER";
   const conf = (res.confidence * 100).toFixed(0);
-  const riskLevel = res.risk_level || 0;
-  const chunkRisk = res.chunk_risk || 0;
 
-  // Update gauge
-  setGauge(riskLevel);
+  // ── Danger Dial: use the new scoring engine fields ──
+  const dialLabel = res.dial_label || "NORMAL";
+  const dialScore = res.dial_score || 0;
+  const dialLevel = res.dial_level || 0;
+  const wordSev = res.word_severity || 0;
+  const voiceSev = res.voice_severity || 0;
+  const eventSev = res.event_severity || 0;
+  const chunkScore = res.chunk_score || 0;
 
-  // Chunk analysis entry
-  const icon = isDanger ? "!!" : "OK";
-  const cls = isDanger ? "c-danger" : "c-safe";
-  let detail = `#${monChunkCount} ${icon} ${res.status} [L${riskLevel}] ${res.sound_name} (${conf}%)`;
-  if (res.transcript) detail += ` "${res.transcript.slice(0, 30)}"`;
+  // Map dial_level (0-4) to gauge
+  setGauge(dialLevel);
+
+  // ── Update Danger Dial Gauge ──
+  const dialBar = $("dialBar");
+  const dialLabelEl = $("dialLabel");
+  const dialScoreEl = $("dialScore");
+  const levelColor = LEVEL_COLORS[dialLevel] || "#22C55E";
+
+  dialLabelEl.textContent = dialLabel;
+  dialLabelEl.style.color = levelColor;
+  dialScoreEl.textContent = dialScore.toFixed(1);
+
+  // Update SVG needle: map dial_score (0-10) to gauge percentage (0-100)
+  const gaugePercent = Math.min(100, (dialScore / 10) * 100);
+  const needleAngle = -90 + (gaugePercent / 100) * 180;
+  if (needleWrapper) needleWrapper.style.transform = `rotate(${needleAngle}deg)`;
+
+  // Update arc fill
+  const arc = $("dialArc");
+  if (arc) arc.style.strokeDashoffset = 251.2 - (251.2 * (gaugePercent / 100));
+
+  // Update equalizer bars based on severity
+  const eqBars = document.querySelectorAll("#dialEq .dial-eq-bar");
+  const maxSev = Math.max(voiceSev, eventSev, wordSev);
+  const eqColor = dialLevel >= 4 ? "#ef4444" : dialLevel >= 3 ? "#f97316" : dialLevel >= 2 ? "#eab308" : "#06b6d4";
+  eqBars.forEach((bar, i) => {
+    const base = 15 + Math.sin(Date.now() / 200 + i) * 10;
+    const danger = maxSev * 20;
+    const h = Math.min(100, base + danger + Math.random() * 15);
+    bar.style.height = h + "%";
+    bar.style.background = eqColor;
+  });
+
+  // Dial container border state
+  dialBar.className = "dial-container";
+  if (dialLabel === "NORMAL") dialBar.classList.add("state-normal");
+  else if (dialLabel === "CONCERNING") dialBar.classList.add("state-concerning");
+  else if (dialLabel === "ELEVATED") dialBar.classList.add("state-elevated");
+  else if (dialLabel === "HIGH RISK") dialBar.classList.add("state-high_risk");
+  else if (dialLabel === "CRITICAL") dialBar.classList.add("state-critical");
+
+  // Signal chips
+  function updateChip(id, label, val, maxVal) {
+    const el = $(id);
+    el.textContent = label + " " + val;
+    el.className = "sig-chip";
+    if (val >= 2) el.classList.add("hot");
+    else if (val >= 1) el.classList.add("warm");
+    else if (val > 0) el.classList.add("active");
+  }
+  updateChip("sigWords", "WORDS", wordSev, 3);
+  updateChip("sigVoice", "VOICE", voiceSev, 2);
+  updateChip("sigEvent", "EVENT", eventSev, 2);
+
+  // Bonus chips
+  const repB = res.repetition_bonus || 0;
+  const escB = res.escalation_bonus || 0;
+  const cmbB = res.combination_bonus || 0;
+  function updateBonusChip(id, label, val) {
+    const el = $(id);
+    el.textContent = label + " " + val.toFixed(1);
+    el.className = "sig-chip";
+    if (val >= 1) el.classList.add("warm");
+    else if (val > 0) el.classList.add("active");
+  }
+  updateBonusChip("sigRep", "REP", repB);
+  updateBonusChip("sigEsc", "ESC", escB);
+  updateBonusChip("sigCmb", "COMBO", cmbB);
+
+  // Chunk analysis entry — show the dial signals
+  const icon = dialLabel === "CRITICAL" ? "!!!" : dialLabel === "HIGH RISK" ? "!!" : isDanger ? "!" : "OK";
+  const cls = (dialLabel === "HIGH RISK" || dialLabel === "CRITICAL") ? "c-danger" : "c-safe";
+  let detail = `#${monChunkCount} ${icon} ${dialLabel} [${dialScore.toFixed(1)}] `;
+  detail += `W${wordSev} V${voiceSev} E${eventSev} `;
+  detail += `${res.sound_name} (${conf}%)`;
+  if (res.transcript) detail += ` "${res.transcript.slice(0, 25)}"`;
   addChunk(cls, detail);
 
-  // Every 3 chunks: summary line with energy/risk
+  // Every 3 chunks: summary with full dial breakdown
   if (monChunkCount % 3 === 0) {
-    const summary = `--- After ${monChunkCount} chunks: Status=${res.status} | Risk Level=${riskLevel}/4 | Confidence=${conf}% | Chunk Risk=${chunkRisk}/4 ---`;
-    addChunk("c-summary", summary);
+    const repB = res.repetition_bonus || 0;
+    const escB = res.escalation_bonus || 0;
+    const cmbB = res.combination_bonus || 0;
+    const summary = `--- Chunk ${monChunkCount}: Dial=${dialLabel}(${dialScore.toFixed(1)}) `;
+    const signals = `W=${wordSev} V=${voiceSev} E=${eventSev} `;
+    const bonuses = `Rep=${repB.toFixed(1)} Esc=${escB.toFixed(1)} Cmb=${cmbB.toFixed(1)} ---`;
+    addChunk("c-summary", summary + signals + bonuses);
   }
-
-  // Transcription is now handled by Web Speech API (browser-native)
-  // No longer adding entries from server results
 }
 
 // ═══════════════════════════════════════════════════════════════════

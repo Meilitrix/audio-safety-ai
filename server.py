@@ -112,6 +112,8 @@ def _risk_clear():
         _risk_history = []
 
 
+from scoring_engine import DangerScorer
+
 # Lazy-load YAMNet on first request
 _classify_fn = None
 
@@ -138,9 +140,11 @@ log.setLevel(logging.WARNING)
 
 # Session state
 _session = {
-    "status": "idle",         # idle | recording | stopped
+    "status": "idle",         # idle | monitoring | stopped
+    "recording": False,       # True only when user explicitly consented to record
     "journey_id": "",
     "total_chunks": 0,
+    "scorer": None,           # DangerScorer instance (per-session)
 }
 
 
@@ -162,28 +166,48 @@ def start_session():
     for f in glob.glob(os.path.join(AUDIO_DIR, f"chunk_{jid}_*")):
         os.remove(f)
 
-    _session["status"] = "recording"
+    _session["status"] = "monitoring"
+    _session["recording"] = False        # monitor-only by default
     _session["journey_id"] = jid
     _session["total_chunks"] = 0
+    _session["scorer"] = DangerScorer()   # fresh scorer per session
     _buffer_clear()
     _risk_clear()
 
     return jsonify({"ok": True, "journey_id": jid})
 
 
+@app.route("/toggle_recording", methods=["POST"])
+def toggle_recording():
+    """Enable or disable recording (consent-based). Monitor keeps running."""
+    data = request.get_json(silent=True) or {}
+    enable = data.get("recording", True)
+    _session["recording"] = bool(enable)
+    return jsonify({"ok": True, "recording": _session["recording"]})
+
+
 @app.route("/stop_session", methods=["POST"])
 def stop_session():
     jid = _session.get("journey_id", "")
+    was_recording = _session.get("recording", False)
     _session["status"] = "stopped"
+    _session["recording"] = False
 
-    # Combine all chunks into one WAV
-    saved_path = _combine_journey(jid)
+    saved_path = ""
+    if was_recording:
+        # Combine all chunks into one WAV (user gave consent)
+        saved_path = _combine_journey(jid)
+    else:
+        # Monitor-only: delete chunks (no consent to save)
+        for f in glob.glob(os.path.join(AUDIO_DIR, f"chunk_{jid}_*")):
+            os.remove(f)
 
     return jsonify({
         "ok": True,
         "journey_id": jid,
         "saved_path": saved_path,
         "total_chunks": _session["total_chunks"],
+        "was_recording": was_recording,
     })
 
 
@@ -215,8 +239,12 @@ def upload_chunk():
         # ── Read WAV → proper 16 kHz mono float32 ──
         import librosa
         audio, sr = librosa.load(filepath, sr=16000, mono=True, dtype=np.float32)
+        # ── Compute raw audio metrics for the danger scorer ──
+        raw_energy = float(np.mean(audio ** 2))
+        raw_peak   = float(np.max(np.abs(audio)))
+
         print(f"  [Audio] sr={sr}, duration={len(audio)/sr:.1f}s, "
-              f"samples={len(audio)}, energy={np.mean(audio**2):.6f}")
+              f"samples={len(audio)}, energy={raw_energy:.6f}, peak={raw_peak:.3f}")
 
         # ── Classify via YAMNet ──
         classify = _get_classify()
@@ -239,21 +267,41 @@ def upload_chunk():
         transcript = speech_info.get("transcript", "")
         keywords = speech_info.get("keywords", [])
 
-        # ── Compute chunk risk score (0-4) for the gauge ──
+        # ── Danger Dial scoring ──
+        # Map keyword risk to word_severity (0-3) for the scorer
+        kw_risk = speech_info.get("risk_score", 0)
+        word_severity = min(3, int(kw_risk))
+
+        # Also accept word_severity from frontend if provided
+        frontend_ws = request.form.get("word_severity")
+        if frontend_ws is not None:
+            try:
+                word_severity = max(word_severity, min(3, int(frontend_ws)))
+            except (ValueError, TypeError):
+                pass
+
+        scorer = _session.get("scorer")
+        if scorer is None:
+            scorer = DangerScorer()
+            _session["scorer"] = scorer
+
+        dial_result = scorer.process_chunk(
+            word_severity=word_severity,
+            energy=raw_energy,
+            peak=raw_peak,
+            yamnet_top_name=sound_name,
+        )
+
+        # ── Compute chunk risk score (0-4) for the gauge (legacy) ──
         chunk_risk = 0
-        # Acoustic danger from YAMNet
         if raw_status == "DANGER":
             chunk_risk = max(chunk_risk, 2)
             if confidence > 0.8:
                 chunk_risk = max(chunk_risk, 3)
-        # Speech keyword severity
-        kw_risk = speech_info.get("risk_score", 0)
         chunk_risk = max(chunk_risk, kw_risk)
-        # Pitch screaming
         pitch_info = result.get("pitch_info", {})
         if pitch_info.get("screaming") and pitch_info.get("level", 0) > 0.5:
             chunk_risk = max(chunk_risk, 3)
-        # Sudden silence
         if result.get("energy_signal") == "SILENCE":
             chunk_risk = max(chunk_risk, 2)
 
@@ -261,14 +309,23 @@ def upload_chunk():
         risk_level = _risk_level()
 
         # ── Log result ──
-        icon = "🚨" if stable_status == "DANGER" else "✅"
-        print(f"  {icon} Chunk #{chunk_idx}: {sound_name} → {stable_status} "
-              f"({confidence*100:.0f}%)")
+        dial_icon = {"NORMAL": "  ", "CONCERNING": "  ",
+                     "ELEVATED": "  ", "HIGH RISK": "  ",
+                     "CRITICAL": "  "}.get(dial_result["dial_label"], "  ")
+        icon = "DANGER" if stable_status == "DANGER" else "OK"
+        print(f"  [{icon}] Chunk #{chunk_idx}: {sound_name} -> {stable_status} "
+              f"({confidence*100:.0f}%)  |  Dial: {dial_result['dial_label']} "
+              f"(score={dial_result['accumulated_score']:.1f})")
 
         # ── Alert on stable DANGER ──
         if stable_status == "DANGER":
-            print(f"  [DANGER ALERT] {sound_name} ({confidence*100:.0f}%) — "
+            print(f"  [DANGER ALERT] {sound_name} ({confidence*100:.0f}%) -- "
                   f"transcript: {transcript}")
+        if dial_result["dial_label"] in ("HIGH RISK", "CRITICAL"):
+            print(f"  [DIAL ALERT] {dial_result['dial_label']} -- "
+                  f"words={dial_result['word_severity']} "
+                  f"voice={dial_result['voice_severity']} "
+                  f"event={dial_result['event_severity']}")
 
         return jsonify({
             "status": stable_status,
@@ -280,6 +337,18 @@ def upload_chunk():
             "chunk_index": int(chunk_idx),
             "risk_level": risk_level,
             "chunk_risk": chunk_risk,
+            # ── Danger Dial fields ──
+            "dial_score": round(dial_result["accumulated_score"], 2),
+            "dial_level": dial_result["dial_level"],
+            "dial_label": dial_result["dial_label"],
+            "word_severity": dial_result["word_severity"],
+            "voice_severity": dial_result["voice_severity"],
+            "event_severity": dial_result["event_severity"],
+            "event_type": dial_result["event_type"],
+            "chunk_score": round(dial_result["chunk_score"], 2),
+            "repetition_bonus": round(dial_result["repetition_bonus"], 2),
+            "escalation_bonus": round(dial_result["escalation_bonus"], 2),
+            "combination_bonus": round(dial_result["combination_bonus"], 2),
         })
 
     except Exception as e:
@@ -295,6 +364,20 @@ def upload_chunk():
             "transcript": "",
             "keywords": [],
             "chunk_index": int(chunk_idx) if 'chunk_idx' in dir() else 0,
+            "risk_level": 0,
+            "chunk_risk": 0,
+            # ── Danger Dial fields (safe defaults on error) ──
+            "dial_score": 0,
+            "dial_level": 0,
+            "dial_label": "NORMAL",
+            "word_severity": 0,
+            "voice_severity": 0,
+            "event_severity": 0,
+            "event_type": "none",
+            "chunk_score": 0,
+            "repetition_bonus": 0,
+            "escalation_bonus": 0,
+            "combination_bonus": 0,
         })
 
 
@@ -399,6 +482,7 @@ if __name__ == "__main__":
     print(f"  AI Core  :  YAMNet + Web Speech API (browser)")
     print(f"  Threshold:  {CONFIDENCE_THRESHOLD*100:.0f}% confidence")
     print(f"  Smoothing:  {REQUIRED_CONSECUTIVE} consecutive chunks")
+    print(f"  Dial     :  Danger Scorer (temporal accumulation + decay)")
     print(f"  Storage  :  {JOURNEY_DIR}")
     print("=" * 56)
     print()
