@@ -127,6 +127,28 @@ def _get_classify():
     return _classify_fn
 
 
+# -- Custom Danger Classifier (trained on sfx_training) --
+_custom_predictor = None
+
+
+def _get_custom_predictor():
+    global _custom_predictor
+    if _custom_predictor is None:
+        try:
+            sys.path.insert(0, os.path.join(BASE_DIR, "train_model"))
+            from predictor import DangerPredictor
+            _custom_predictor = DangerPredictor()
+            if _custom_predictor.is_loaded:
+                print("[AI] Custom danger classifier loaded (trained on sfx_training).")
+            else:
+                print("[AI] Custom classifier not available — run train_model/train_classifier.py first.")
+                _custom_predictor = None
+        except Exception as e:
+            print(f"[AI] Custom classifier failed to load: {e}")
+            _custom_predictor = None
+    return _custom_predictor
+
+
 # ══════════════════════════════════════════════════════════════════════
 #  FLASK APP
 # ══════════════════════════════════════════════════════════════════════
@@ -254,6 +276,23 @@ def upload_chunk():
         confidence = result["confidence"]
         sound_name = result["sound_name"]
 
+        # ── Custom classifier (trained model) ──
+        custom_result = None
+        predictor = _get_custom_predictor()
+        if predictor is not None:
+            custom_result = predictor.predict(filepath)
+            custom_label = custom_result.get("label", "UNKNOWN")
+            custom_conf = custom_result.get("confidence", 0)
+            print(f"  [Custom] {custom_label} ({custom_conf*100:.0f}%) | "
+                  f"probs={custom_result.get('probabilities', {})}")
+            # Boost event_severity if custom model says DANGER with high confidence
+            if custom_label == "DANGER" and custom_conf > 0.7:
+                # Override YAMNet if it missed the danger
+                if raw_status == "SAFE":
+                    raw_status = "DANGER"
+                    confidence = custom_conf
+                    sound_name = f"[Custom] {custom_label}"
+
         # ── Smoothing buffer ──
         _smooth_add(raw_status)
         stable_status = _smooth_stable()
@@ -327,6 +366,15 @@ def upload_chunk():
                   f"voice={dial_result['voice_severity']} "
                   f"event={dial_result['event_severity']}")
 
+        # Add custom model info to response
+        custom_response = {}
+        if custom_result:
+            custom_response = {
+                "custom_label": custom_result.get("label", "UNKNOWN"),
+                "custom_confidence": custom_result.get("confidence", 0),
+                "custom_probabilities": custom_result.get("probabilities", {}),
+            }
+
         return jsonify({
             "status": stable_status,
             "raw_status": raw_status,
@@ -337,7 +385,7 @@ def upload_chunk():
             "chunk_index": int(chunk_idx),
             "risk_level": risk_level,
             "chunk_risk": chunk_risk,
-            # ── Danger Dial fields ──
+            # -- Danger Dial fields --
             "dial_score": round(dial_result["accumulated_score"], 2),
             "dial_level": dial_result["dial_level"],
             "dial_label": dial_result["dial_label"],
@@ -349,6 +397,8 @@ def upload_chunk():
             "repetition_bonus": round(dial_result["repetition_bonus"], 2),
             "escalation_bonus": round(dial_result["escalation_bonus"], 2),
             "combination_bonus": round(dial_result["combination_bonus"], 2),
+            # -- Custom classifier fields --
+            **custom_response,
         })
 
     except Exception as e:
@@ -479,7 +529,8 @@ if __name__ == "__main__":
     print("  🛡️  AUDIO SAFETY AI — Native Web Server")
     print("=" * 56)
     print(f"  Frontend :  http://localhost:5004")
-    print(f"  AI Core  :  YAMNet + Web Speech API (browser)")
+    print(f"  AI Core  :  YAMNet + Custom SVM (sfx_training)")
+    print(f"  Custom   :  train_model/models/danger_classifier_latest.pkl")
     print(f"  Threshold:  {CONFIDENCE_THRESHOLD*100:.0f}% confidence")
     print(f"  Smoothing:  {REQUIRED_CONSECUTIVE} consecutive chunks")
     print(f"  Dial     :  Danger Scorer (temporal accumulation + decay)")

@@ -34,7 +34,9 @@ ai_result.json
 *.h5
 *.pb
 *.onnx
+*.pkl
 models/
+train_model/models/
 
 # ── Backups & setup scripts ──
 *_backup*
@@ -43,3 +45,5 @@ github_setup.bat
 
 # ── Logs ──
 *.log
+*.txt
+!requirements.txt

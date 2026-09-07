@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Abhi AI — Alibaba Cloud AI Hackathon Pakistan 2026</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root { --bg:#0f172a; --surface:#1e293b; --elevated:#334155; --text:#f1f5f9; --muted:#94a3b8; --accent:#06b6d4; --accent-text:#0f172a; --border:#334155; --hover:#334155; --red:#ef4444; --green:#22c55e; --blue:#3b82f6; --amber:#f59e0b; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
+.slide { display:none; padding:60px 80px; min-height:calc(100vh - 60px); flex-direction:column; justify-content:center; max-width:1100px; margin:0 auto; width:100%; }
+.slide.active { display:flex; }
+.slide-tag { font-size:12px; font-weight:700; letter-spacing:3px; text-transform:uppercase; color:var(--accent); margin-bottom:16px; }
+.slide h1 { font-size:42px; font-weight:700; line-height:1.15; margin-bottom:20px; }
+.slide h2 { font-size:30px; font-weight:600; line-height:1.2; margin-bottom:16px; }
+.slide h3 { font-size:18px; font-weight:600; margin-bottom:10px; }
+.slide p { font-size:16px; line-height:1.7; color:var(--muted); margin-bottom:14px; max-width:720px; }
+.subtitle { font-size:19px; color:var(--muted); margin-bottom:28px; max-width:640px; line-height:1.6; }
+.big-num { font-size:64px; font-weight:800; color:var(--accent); line-height:1; }
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:16px; }
+.grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-top:16px; }
+.stat-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:20px; }
+.stat-card .label { font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin-bottom:6px; }
+.stat-card .value { font-size:28px; font-weight:700; }
+.stat-card .desc { font-size:13px; color:var(--muted); margin-top:4px; line-height:1.5; }
+.feature-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:16px; }
+.feature-card .icon { font-size:24px; margin-bottom:8px; }
+.feature-card h4 { font-size:14px; font-weight:600; margin-bottom:4px; }
+.feature-card p { font-size:13px; color:var(--muted); line-height:1.5; margin:0; }
+.tag { display:inline-block; padding:3px 10px; border-radius:4px; font-size:12px; font-weight:600; margin:2px 4px 2px 0; }
+.tag-red { background:rgba(239,68,68,.15); color:var(--red); }
+.tag-green { background:rgba(34,197,94,.15); color:var(--green); }
+.tag-blue { background:rgba(59,130,246,.15); color:var(--blue); }
+.tag-amber { background:rgba(245,158,11,.15); color:var(--amber); }
+.arch-box { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:20px; margin-top:12px; }
+.arch-row { display:flex; align-items:center; gap:12px; margin:8px 0; flex-wrap:wrap; }
+.arch-node { padding:8px 16px; border-radius:6px; font-size:13px; font-weight:600; border:1px solid var(--border); background:var(--elevated); }
+.arch-arrow { color:var(--muted); font-size:18px; }
+.problem-list { list-style:none; padding:0; margin:12px 0; }
+.problem-list li { padding:10px 0; border-bottom:1px solid var(--border); font-size:15px; display:flex; gap:10px; align-items:flex-start; }
+.problem-list li:last-child { border:none; }
+.bullet { width:6px; height:6px; border-radius:50%; background:var(--red); flex-shrink:0; margin-top:8px; }
+.tech-stack { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.highlight { color:var(--accent); font-weight:600; }
+.nav-bar { display:flex; justify-content:space-between; align-items:center; padding:14px 80px; border-top:1px solid var(--border); background:var(--surface); position:fixed; bottom:0; left:0; right:0; z-index:10; }
+.nav-bar button { padding:8px 24px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font-size:14px; font-weight:500; cursor:pointer; transition:background .15s; }
+.nav-bar button:hover { background:var(--hover); }
+.page-info { font-size:14px; color:var(--muted); font-weight:500; }
+@media (max-width:768px) {
+  .slide { padding:32px 24px; }
+  .slide h1 { font-size:28px; }
+  .slide h2 { font-size:22px; }
+  .grid-2, .grid-3 { grid-template-columns:1fr; }
+  .nav-bar { padding:12px 24px; }
+}
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: TITLE -->
+<div class="slide active">
+  <div class="slide-tag">Alibaba Cloud AI Hackathon Pakistan 2026</div>
+  <h1>Abhi AI</h1>
+  <p class="subtitle">Real-time audio threat detection for ride-hailing safety. A dual-AI system that listens for danger in Pakistani vehicles — screams, slaps, distress keywords in Urdu, English, Punjabi and Pashto — and escalates before it's too late.</p>
+  <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+    <span class="tag tag-red">Threat Detection</span>
+    <span class="tag tag-blue">Dual AI Engine</span>
+    <span class="tag tag-green">Multilingual</span>
+    <span class="tag tag-amber">Real-Time</span>
+  </div>
+</div>
+
+<!-- SLIDE 2: PROBLEM -->
+<div class="slide">
+  <div class="slide-tag">The Problem</div>
+  <h2>Passengers are unsafe — and no one is listening</h2>
+  <ul class="problem-list">
+    <li><span class="bullet"></span><span><strong>1 in 3 women</strong> experience harassment during ride-hailing trips in Pakistan. Most incidents are <strong>audio-based</strong> — screams, slaps, verbal abuse — but go undetected.</span></li>
+    <li><span class="bullet"></span><span><strong>No real-time monitoring</strong> exists in current ride-hailing apps. SOS buttons require manual action. By the time a passenger can tap, the threat has escalated.</span></li>
+    <li><span class="bullet"></span><span><strong>Language barrier:</strong> Global AI models don't understand Urdu, Punjabi, or Pashto distress keywords like "bachao", "madad", "nok".</span></li>
+    <li><span class="bullet"></span><span><strong>Vehicle cabin acoustics</strong> are a unique environment — engine noise, road vibration, enclosed space — that generic models aren't trained for.</span></li>
+  </ul>
+</div>
+
+<!-- SLIDE 3: SOLUTION -->
+<div class="slide">
+  <div class="slide-tag">Our Solution</div>
+  <h2>An AI that listens for danger — so passengers don't have to act</h2>
+  <p>Abhi AI runs a <span class="highlight">passive audio monitor</span> during every ride. It doesn't wait for the passenger to press a button. It <strong>detects threats automatically</strong> through sound.</p>
+  <div class="grid-3">
+    <div class="feature-card"><div class="icon">&#127911;</div><h4>Acoustic Threat Detection</h4><p>YAMNet + custom SVM classifier identifies screams, slaps, glass breaking, and danger sounds in real-time.</p></div>
+    <div class="feature-card"><div class="icon">&#128172;</div><h4>Multilingual Keyword Spotting</h4><p>150+ distress keywords across English, Urdu, Punjabi, Pashto — severity-weighted (L1/L2/L3).</p></div>
+    <div class="feature-card"><div class="icon">&#128200;</div><h4>Temporal Escalation</h4><p>Danger dial accumulates risk over time — repetition, escalation, and combination bonuses trigger alerts.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 4: WHO IT SERVES -->
+<div class="slide">
+  <div class="slide-tag">Who It Serves</div>
+  <h2>Built for Pakistan's ride-hailing ecosystem</h2>
+  <div class="grid-2">
+    <div class="stat-card"><div class="label">Primary Users</div><div class="value" style="font-size:20px">Female passengers</div><div class="desc">Women aged 18-45 using Careem, Uber, inDrive. Most vulnerable to in-ride harassment and assault.</div></div>
+    <div class="stat-card"><div class="label">Secondary Users</div><div class="value" style="font-size:20px">Ride-hailing platforms</div><div class="desc">Careem, Uber, inDrive can integrate our API to add audio safety monitoring to existing apps.</div></div>
+    <div class="stat-card"><div class="label">Emergency Responders</div><div class="value" style="font-size:20px">Punjab Police (15)</div><div class="desc">Automated incident reports with GPS, transcript, and threat classification dispatched to emergency services.</div></div>
+    <div class="stat-card"><div class="label">Market Size</div><div class="big-num" style="font-size:36px">50M+</div><div class="desc">Ride-hailing rides per year in Pakistan. Each ride is a potential monitoring session.</div></div>
+  </div>
+</div>
+
+<!-- SLIDE 5: TECHNOLOGY -->
+<div class="slide">
+  <div class="slide-tag">Technology</div>
+  <h2>Dual-AI engine with temporal scoring</h2>
+  <div class="arch-box">
+    <h3 style="margin-bottom:12px">Audio Pipeline Architecture</h3>
+    <div class="arch-row">
+      <div class="arch-node" style="border-color:var(--blue)">Microphone (Browser)</div>
+      <span class="arch-arrow">&rarr;</span>
+      <div class="arch-node">3-sec WAV Chunks</div>
+      <span class="arch-arrow">&rarr;</span>
+      <div class="arch-node" style="border-color:var(--accent)">Flask Server (Port 5004)</div>
+    </div>
+    <div class="arch-row" style="margin-left:40px"><span class="arch-arrow">&darr;</span></div>
+    <div class="arch-row">
+      <div class="arch-node" style="border-color:var(--green)">YAMNet (521 classes)</div>
+      <span style="font-size:13px;color:var(--muted)">+</span>
+      <div class="arch-node" style="border-color:var(--amber)">Custom SVM (87.7% acc)</div>
+      <span class="arch-arrow">&rarr;</span>
+      <div class="arch-node">Danger Scorer</div>
+      <span class="arch-arrow">&rarr;</span>
+      <div class="arch-node" style="border-color:var(--red)">Danger Dial (0-10)</div>
+    </div>
+  </div>
+  <div class="grid-3" style="margin-top:16px">
+    <div class="feature-card"><h4>Signal 1: WORDS</h4><p>Speech-to-text via Web Speech API, matched against 150+ distress keywords with severity levels.</p></div>
+    <div class="feature-card"><h4>Signal 2: VOICE</h4><p>Pitch and energy analysis detects screaming, shouting, and vocal distress patterns.</p></div>
+    <div class="feature-card"><h4>Signal 3: EVENT</h4><p>YAMNet + custom SVM classify environmental danger sounds: screams, slaps, impacts, glass.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 6: INNOVATION -->
+<div class="slide">
+  <div class="slide-tag">Innovation</div>
+  <h2>What makes this different</h2>
+  <div class="grid-2">
+    <div class="stat-card"><div class="label">Temporal Accumulation Model</div><div class="desc" style="font-size:14px;margin-top:8px">Unlike binary SAFE/DANGER classifiers, our scoring engine <strong>accumulates risk over time</strong>. A single scream raises the dial. Repeated screams add a repetition bonus. Rising intensity adds escalation. Multiple signals firing together add combination bonus.</div></div>
+    <div class="stat-card"><div class="label">Domain-Specific Training</div><div class="desc" style="font-size:14px;margin-top:8px">Custom SVM trained on <strong>40 labeled audio samples</strong> from vehicle-cabin-relevant categories. Features: MFCCs, energy, ZCR, spectral contrast, chroma. <strong>87.7% cross-validation accuracy.</strong></div></div>
+    <div class="stat-card"><div class="label">Multilingual Distress Taxonomy</div><div class="desc" style="font-size:14px;margin-top:8px"><strong>150+ keywords</strong> across 4 languages, severity-weighted:<br><span class="tag tag-green">L1: Mild</span> "help", "stop"<br><span class="tag tag-amber">L2: Severe</span> "bachao", "maray"<br><span class="tag tag-red">L3: Critical</span> "maar daalay"</div></div>
+    <div class="stat-card"><div class="label">Runs Fully Offline</div><div class="desc" style="font-size:14px;margin-top:8px">No paid API dependency. YAMNet runs locally via TensorFlow. Custom SVM via scikit-learn. Only Web Speech API uses cloud (browser-native). <strong>Works in low-connectivity areas.</strong></div></div>
+  </div>
+</div>
+
+<!-- SLIDE 7: WHAT WE BUILT -->
+<div class="slide">
+  <div class="slide-tag">What We Built</div>
+  <h2>Working prototype — not just a concept</h2>
+  <div class="grid-2">
+    <div>
+      <h3>Audio Safety Engine</h3>
+      <ul class="problem-list">
+        <li><span class="bullet" style="background:var(--green)"></span><span>Real-time audio monitoring via browser microphone</span></li>
+        <li><span class="bullet" style="background:var(--green)"></span><span>SVG danger dial gauge with animated needle (0-10 scale)</span></li>
+        <li><span class="bullet" style="background:var(--green)"></span><span>Dual AI: YAMNet + custom SVM on every 3-sec chunk</span></li>
+        <li><span class="bullet" style="background:var(--green)"></span><span>Signal chips: WORDS, VOICE, EVENT, REP, ESC, COMBO</span></li>
+        <li><span class="bullet" style="background:var(--green)"></span><span>Journey recording with consent (WAV archive)</span></li>
+        <li><span class="bullet" style="background:var(--green)"></span><span>15 calibrated test scenarios (all passing)</span></li>
+      </ul>
+    </div>
+    <div>
+      <h3>Ride-Hailing App (Abhi AI)</h3>
+      <ul class="problem-list">
+        <li><span class="bullet" style="background:var(--blue)"></span><span>Full booking flow: pickup, route selection, driver matching</span></li>
+        <li><span class="bullet" style="background:var(--blue)"></span><span>Live map with OSRM routing and safety scores</span></li>
+        <li><span class="bullet" style="background:var(--blue)"></span><span>SOS button with slide-to-confirm and emergency dispatch</span></li>
+        <li><span class="bullet" style="background:var(--blue)"></span><span>Route deviation detection (150m threshold)</span></li>
+        <li><span class="bullet" style="background:var(--blue)"></span><span>Emergency contacts with auto-SMS/GPS</span></li>
+        <li><span class="bullet" style="background:var(--amber)"></span><span>Audio AI integration in progress</span></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: TECH STACK -->
+<div class="slide">
+  <div class="slide-tag">Tech Stack</div>
+  <h2>Built with practical, deployable technology</h2>
+  <div class="grid-2">
+    <div class="stat-card"><div class="label">AI / ML</div><div class="tech-stack"><span class="tag tag-blue">YAMNet</span><span class="tag tag-blue">TensorFlow Hub</span><span class="tag tag-blue">scikit-learn (SVM)</span><span class="tag tag-blue">librosa</span><span class="tag tag-blue">Web Speech API</span><span class="tag tag-blue">NumPy</span></div></div>
+    <div class="stat-card"><div class="label">Backend</div><div class="tech-stack"><span class="tag tag-green">Python 3.12</span><span class="tag tag-green">Flask</span><span class="tag tag-green">Flask-CORS</span><span class="tag tag-green">Threaded</span></div></div>
+    <div class="stat-card"><div class="label">Frontend</div><div class="tech-stack"><span class="tag tag-amber">React 19</span><span class="tag tag-amber">TypeScript</span><span class="tag tag-amber">Vite 6</span><span class="tag tag-amber">Tailwind CSS 4</span><span class="tag tag-amber">Leaflet Maps</span><span class="tag tag-amber">SVG Gauge</span></div></div>
+    <div class="stat-card"><div class="label">Infrastructure</div><div class="tech-stack"><span class="tag tag-red">Offline-first</span><span class="tag tag-red">No paid APIs</span><span class="tag tag-red">OSRM Routing</span><span class="tag tag-red">GitHub</span></div></div>
+  </div>
+</div>
+
+<!-- SLIDE 9: FEASIBILITY -->
+<div class="slide">
+  <div class="slide-tag">Feasibility & Impact</div>
+  <h2>Deployable today, scalable tomorrow</h2>
+  <div class="grid-2">
+    <div class="stat-card"><div class="label">Current Performance</div><div class="value">87.7%</div><div class="desc">Custom SVM cross-validation accuracy on trained sound categories. Improves with more data.</div></div>
+    <div class="stat-card"><div class="label">Latency</div><div class="value">~3s</div><div class="desc">Per-chunk analysis cycle. Real-time enough for in-ride monitoring where seconds matter.</div></div>
+    <div class="stat-card"><div class="label">Integration Path</div><div class="desc" style="font-size:14px;margin-top:8px"><strong>Phase 1:</strong> Audio engine as API service<br><strong>Phase 2:</strong> SDK for ride-hailing apps<br><strong>Phase 3:</strong> On-device model (TFLite)<br><strong>Phase 4:</strong> Fleet-wide deployment</div></div>
+    <div class="stat-card"><div class="label">What's Needed Next</div><div class="desc" style="font-size:14px;margin-top:8px"><strong>Data:</strong> 500+ labeled clips from Pakistani vehicles<br><strong>Model:</strong> Fine-tune YAMNet on domain audio<br><strong>Infra:</strong> Twilio for SOS dispatch<br><strong>Partners:</strong> Careem/inDrive for pilot</div></div>
+  </div>
+</div>
+
+<!-- SLIDE 10: ROADMAP -->
+<div class="slide">
+  <div class="slide-tag">Roadmap</div>
+  <h2>From prototype to production</h2>
+  <div style="margin-top:16px">
+    <div class="arch-box" style="border-left:3px solid var(--green)"><div style="display:flex;gap:16px;align-items:flex-start"><span class="tag tag-green" style="flex-shrink:0">DONE</span><div><strong>Dual AI engine</strong> — YAMNet + custom SVM, danger dial, multilingual keywords, temporal scoring, journey recording</div></div></div>
+    <div class="arch-box" style="border-left:3px solid var(--blue);margin-top:8px"><div style="display:flex;gap:16px;align-items:flex-start"><span class="tag tag-blue" style="flex-shrink:0">IN PROGRESS</span><div><strong>App integration</strong> — Danger gauge embedded in ride-hailing UI during active trips, real-time audio feed</div></div></div>
+    <div class="arch-box" style="border-left:3px solid var(--amber);margin-top:8px"><div style="display:flex;gap:16px;align-items:flex-start"><span class="tag tag-amber" style="flex-shrink:0">NEXT</span><div><strong>Domain adaptation</strong> — Collect 500+ clips from real Pakistani vehicle cabins, retrain SVM, fine-tune YAMNet</div></div></div>
+    <div class="arch-box" style="border-left:3px solid var(--red);margin-top:8px"><div style="display:flex;gap:16px;align-items:flex-start"><span class="tag tag-red" style="flex-shrink:0">FUTURE</span><div><strong>Production</strong> — Twilio SOS dispatch, on-device TFLite model, fleet dashboard, driver-side monitoring</div></div></div>
+  </div>
+</div>
+
+<!-- SLIDE 11: THANK YOU -->
+<div class="slide">
+  <div class="slide-tag">Team Meilitrix</div>
+  <h1>Thank You</h1>
+  <p class="subtitle">Abhi AI — making every ride safer, one sound at a time.</p>
+  <div style="margin-top:16px">
+    <div class="stat-card" style="display:inline-block;margin-right:12px"><div class="label">GitHub</div><div class="desc">github.com/Meilitrix/audio-safety-ai</div></div>
+    <div class="stat-card" style="display:inline-block"><div class="label">Hackathon</div><div class="desc">Alibaba Cloud AI Hackathon Pakistan 2026</div></div>
+  </div>
+</div>
+
+<div class="nav-bar">
+  <button onclick="prevSlide()">&#8592; Previous</button>
+  <span class="page-info" id="pageInfo">1 / 11</span>
+  <button onclick="nextSlide()">Next &#8594;</button>
+</div>
+
+<script>
+let current = 0;
+const slides = document.querySelectorAll('.slide');
+const total = slides.length;
+const info = document.getElementById('pageInfo');
+function showSlide(n) {
+  slides.forEach(s => s.classList.remove('active'));
+  current = Math.max(0, Math.min(total - 1, n));
+  slides[current].classList.add('active');
+  info.textContent = (current + 1) + ' / ' + total;
+}
+function nextSlide() { showSlide(current + 1); }
+function prevSlide() { showSlide(current - 1); }
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextSlide();
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') prevSlide();
+});
+</script>
+</body>
+</html>
