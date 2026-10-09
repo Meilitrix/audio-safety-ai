@@ -352,6 +352,12 @@ def upload_chunk():
         raw_status = result["status"]
         confidence = result["confidence"]
         sound_name = result["sound_name"]
+        # Keep YAMNet's TRUE label separately for the dial.  `sound_name` gets
+        # rewritten below when the custom model overrides the status, and that
+        # rewritten string used to be fed into the scorer as "what YAMNet
+        # heard" -- which hid evidence like "Scream" from the dial and made
+        # real screams climb 4x too slowly.  Display != evidence.
+        yamnet_label = sound_name
 
         # ── Custom classifier (trained model) ──
         custom_result = None
@@ -412,7 +418,7 @@ def upload_chunk():
             word_severity=word_severity,
             energy=raw_energy,
             peak=raw_peak,
-            yamnet_top_name=sound_name,
+            yamnet_top_name=yamnet_label,
             model_danger_prob=(chunk_prob or 0.0),
         )
 
