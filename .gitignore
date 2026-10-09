@@ -11,6 +11,13 @@ venv/
 .venv/
 env/
 
+# ── Secrets: API keys / env files must never be published ──
+.env
+.env.*
+!.env.example
+*.key
+*_token*
+
 # ── IDE ──
 .vscode/
 .idea/
