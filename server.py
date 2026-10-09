@@ -352,11 +352,10 @@ def upload_chunk():
         raw_status = result["status"]
         confidence = result["confidence"]
         sound_name = result["sound_name"]
-        # Keep YAMNet's TRUE label separately for the dial.  `sound_name` gets
-        # rewritten below when the custom model overrides the status, and that
-        # rewritten string used to be fed into the scorer as "what YAMNet
-        # heard" -- which hid evidence like "Scream" from the dial and made
-        # real screams climb 4x too slowly.  Display != evidence.
+        # Keep YAMNet's TRUE label separately for the dial.  `sound_name` is a
+        # DISPLAY string and may be rewritten below; feeding that rewritten
+        # text into the scorer would erase real evidence (e.g. a "Scream"
+        # label replaced by "[Custom] DANGER").  Display != evidence.
         yamnet_label = sound_name
 
         # ── Custom classifier (trained model) ──
@@ -368,13 +367,12 @@ def upload_chunk():
             custom_conf = custom_result.get("confidence", 0)
             print(f"  [Custom] {custom_label} ({custom_conf*100:.0f}%) | "
                   f"probs={custom_result.get('probabilities', {})}")
-            # Boost event_severity if custom model says DANGER with high confidence
-            if custom_label == "DANGER" and custom_conf > 0.7:
-                # Override YAMNet if it missed the danger
-                if raw_status == "SAFE":
-                    raw_status = "DANGER"
-                    confidence = custom_conf
-                    sound_name = f"[Custom] {custom_label}"
+            # ── No status override. ──
+            #    This legacy 14-clip classifier was measured flagging engine /
+            #    road / room noise as DANGER at 82-92% on live audio, and any
+            #    caller that treats status==DANGER as an emergency would fire a
+            #    fake SOS while the dial correctly sat at 0.  Its verdict is
+            #    still returned for information; it decides nothing.
 
         # ── Smoothing buffer ──
         _smooth_add(raw_status)
