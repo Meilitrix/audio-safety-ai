@@ -12,7 +12,11 @@ POST /stop_session      → end session, combine chunks → saved_journeys/
 GET  /journeys          → list saved journey files
 GET  /saved_journeys/x  → serve a journey WAV for playback
 
-AI core (yamnet_engine.py, detector.py) is NOT modified.
+AI core (yamnet_engine.py, scoring_engine.py, train_model/predictor.py)
+is NOT modified by this transport layer.
+
+Note: the retired first-generation CLI pipeline lives in legacy_cli/ and is
+run separately (`python -m legacy_cli.main`).  It is not used by this server.
 """
 
 import os
@@ -25,6 +29,7 @@ import time
 import base64
 import logging
 import threading
+import pickle
 import numpy as np
 from datetime import datetime
 
@@ -135,8 +140,11 @@ def _get_custom_predictor():
     global _custom_predictor
     if _custom_predictor is None:
         try:
-            sys.path.insert(0, os.path.join(BASE_DIR, "train_model"))
-            from predictor import DangerPredictor
+            # Import as a package so train_model's internal imports resolve
+            # correctly (predictor.py pulls in train_model.audio_features).
+            if BASE_DIR not in sys.path:
+                sys.path.insert(0, BASE_DIR)
+            from train_model.predictor import DangerPredictor
             _custom_predictor = DangerPredictor()
             if _custom_predictor.is_loaded:
                 print("[AI] Custom danger classifier loaded (trained on sfx_training).")
@@ -152,6 +160,64 @@ def _get_custom_predictor():
 # ══════════════════════════════════════════════════════════════════════
 #  FLASK APP
 # ══════════════════════════════════════════════════════════════════════
+
+# ── Journey-trained CHUNK model (feeds the live dial), behind a toggle ──
+_chunk_model = None
+_chunk_model_checked = False
+_chunk_model_enabled = False         # flipped by POST /set_model (UI toggle)
+
+
+def _get_chunk_model():
+    """Lazily load train_model/models/danger_classifier_chunks.pkl.
+    Returns None (and prints once) if absent, so the live path simply
+    runs without it -- no crash, no behavior change."""
+    global _chunk_model, _chunk_model_checked
+    if _chunk_model_checked:
+        return _chunk_model
+    _chunk_model_checked = True
+    path = os.path.join(BASE_DIR, "train_model", "models",
+                        "danger_classifier_chunks.pkl")
+    if not os.path.exists(path):
+        print("[AI] No chunk model yet - live dial runs on YAMNet + rules only.")
+        _chunk_model = None
+        return None
+    try:
+        if BASE_DIR not in sys.path:
+            sys.path.insert(0, BASE_DIR)
+        with open(path, "rb") as f:
+            _chunk_model = pickle.load(f)
+        print("[AI] Journey-trained chunk model loaded - it now feeds the dial.")
+    except Exception as e:
+        print(f"[AI] Chunk model failed to load: {e}")
+        _chunk_model = None
+    return _chunk_model
+
+
+def _chunk_model_prob(audio, sr):
+    """P(DANGER) for a 3-second chunk from the journey-trained model.
+    Returns None if the model is unavailable or extraction fails."""
+    model = _get_chunk_model()
+    if model is None:
+        return None
+    try:
+        from train_model.audio_features import (
+            extract_features_from_array, features_to_vector)
+        feats = extract_features_from_array(audio, sr)
+        if feats is None:
+            return None
+        vec = np.asarray(features_to_vector(feats), dtype=np.float32).reshape(1, -1)
+        if hasattr(model, "predict_proba"):
+            proba = model.predict_proba(vec)[0]
+            classes = getattr(model, "classes_", None)
+            if classes is None:
+                classes = model.steps[-1][1].classes_
+            cls_list = [int(c) for c in classes]
+            return float(proba[cls_list.index(1)])
+        return 1.0 if int(model.predict(vec)[0]) == 1 else 0.0
+    except Exception as e:
+        print(f"  [ChunkModel] predict failed: {e}")
+        return None
+
 
 app = Flask(__name__)
 CORS(app)
@@ -206,6 +272,17 @@ def toggle_recording():
     enable = data.get("recording", True)
     _session["recording"] = bool(enable)
     return jsonify({"ok": True, "recording": _session["recording"]})
+
+
+@app.route("/set_model", methods=["POST"])
+def set_model():
+    """Toggle whether the journey-trained chunk model feeds the live dial."""
+    global _chunk_model_enabled
+    data = request.get_json(silent=True) or {}
+    _chunk_model_enabled = bool(data.get("enabled", True))
+    print(f"[AI] Journey-trained chunk model -> "
+          f"{'ON' if _chunk_model_enabled else 'OFF'}")
+    return jsonify({"ok": True, "enabled": _chunk_model_enabled})
 
 
 @app.route("/stop_session", methods=["POST"])
@@ -324,11 +401,19 @@ def upload_chunk():
             scorer = DangerScorer()
             _session["scorer"] = scorer
 
+        # ── Journey-trained chunk model: P(danger) for THIS 3s chunk ──
+        chunk_prob = None
+        if _chunk_model_enabled:
+            chunk_prob = _chunk_model_prob(audio, sr)
+            if chunk_prob is not None:
+                print(f"  [TrainedModel] danger={chunk_prob * 100:.0f}%")
+
         dial_result = scorer.process_chunk(
             word_severity=word_severity,
             energy=raw_energy,
             peak=raw_peak,
             yamnet_top_name=sound_name,
+            model_danger_prob=(chunk_prob or 0.0),
         )
 
         # ── Compute chunk risk score (0-4) for the gauge (legacy) ──
@@ -399,6 +484,10 @@ def upload_chunk():
             "combination_bonus": round(dial_result["combination_bonus"], 2),
             # -- Custom classifier fields --
             **custom_response,
+            # -- Journey-trained chunk model fields --
+            "chunk_model_enabled": _chunk_model_enabled,
+            "chunk_model_prob": (round(chunk_prob, 3)
+                                 if chunk_prob is not None else None),
         })
 
     except Exception as e:
@@ -439,13 +528,22 @@ def list_journeys():
     for f in sorted(os.listdir(JOURNEY_DIR), reverse=True):
         if f.endswith(".wav"):
             fp = os.path.join(JOURNEY_DIR, f)
-            files.append({
+            item = {
                 "name": f,
                 "size_kb": round(os.path.getsize(fp) / 1024, 1),
                 "created": datetime.fromtimestamp(
                     os.path.getctime(fp)
                 ).strftime("%Y-%m-%d %H:%M"),
-            })
+            }
+            lab = _read_label(f)
+            if lab:
+                item["label"] = lab.get("label")
+                item["n_danger"] = sum(
+                    1 for c in lab.get("chunks", []) if c.get("label") == "danger")
+            else:
+                item["label"] = None
+                item["n_danger"] = 0
+            files.append(item)
     return jsonify({"journeys": files})
 
 
@@ -454,12 +552,157 @@ def serve_journey(filename):
     return send_from_directory(JOURNEY_DIR, filename)
 
 
+# ── Human-in-the-loop labelling (feeds train_model/train_from_recordings) ──
+
+def _label_path_for(journey_name):
+    """Sidecar label file next to the WAV: journey_04.wav -> journey_04.label.json"""
+    base = journey_name[:-4] if journey_name.endswith(".wav") else journey_name
+    return os.path.join(JOURNEY_DIR, base + ".label.json")
+
+
+def _read_label(journey_name):
+    p = _label_path_for(journey_name)
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+    return None
+
+
+@app.route("/label_journey", methods=["POST"])
+def label_journey():
+    """
+    Store a human label for a saved journey (sidecar .label.json).
+    Body: { name, label: "safe"|"danger"|null, chunks?: [{index, label}] }
+      label="safe"    -> whole journey safe (fast path, no per-chunk work)
+      label="danger"  -> per-chunk labels in `chunks` decide danger/safe/ignore;
+                         any chunk NOT listed defaults to safe
+      label=null,+no chunks -> clear the label
+    """
+    data = request.get_json(silent=True) or {}
+    name = os.path.basename(data.get("name", ""))
+    if not name or not name.endswith(".wav"):
+        return jsonify({"error": "invalid name"}), 400
+    if not os.path.exists(os.path.join(JOURNEY_DIR, name)):
+        return jsonify({"error": "journey not found"}), 404
+
+    label = data.get("label", None)
+    chunks = data.get("chunks", []) or []
+
+    if label is None and not chunks:
+        p = _label_path_for(name)
+        if os.path.exists(p):
+            os.remove(p)
+        return jsonify({"ok": True, "cleared": name})
+
+    payload = {
+        "journey": name,
+        "label": label,
+        "chunks": [
+            {"index": int(c["index"]), "label": c.get("label", "safe")}
+            for c in chunks if "index" in c
+        ],
+        "updated": datetime.now().isoformat(timespec="seconds"),
+    }
+    with open(_label_path_for(name), "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    n_danger = sum(1 for c in payload["chunks"] if c["label"] == "danger")
+    print(f"[Label] {name}: {label} ({len(payload['chunks'])} marked, {n_danger} danger)")
+    return jsonify({"ok": True, "name": name, "label": label, "n_danger": n_danger})
+
+
+@app.route("/journey_chunks")
+def journey_chunks():
+    """
+    Split a saved journey into 3-second chunks and run the SAME
+    classify_audio() + DangerScorer path the live app uses, returning per-chunk
+    info so the UI can pre-sort dial-flagged chunks to the top for quick review.
+    Query: ?name=journey_04.wav
+    """
+    name = os.path.basename(request.args.get("name", ""))
+    wav_path = os.path.join(JOURNEY_DIR, name)
+    if not name or not os.path.exists(wav_path):
+        return jsonify({"error": "journey not found"}), 404
+    try:
+        import librosa
+        from yamnet_engine import classify_audio
+        y, sr = librosa.load(wav_path, sr=16000, mono=True)
+        total_sec = len(y) / sr
+        scorer = DangerScorer()
+        chunk_sec = 3
+        step = int(sr * chunk_sec)
+        existing = _read_label(name) or {}
+        prev_labels = {int(c["index"]): c.get("label")
+                       for c in existing.get("chunks", []) if "index" in c}
+        out = []
+        idx = 0
+        while idx * step < len(y):
+            seg = y[idx * step:(idx + 1) * step]
+            if len(seg) < step // 3:
+                break
+            energy = float(np.mean(seg.astype(np.float32) ** 2))
+            peak = float(np.max(np.abs(seg))) if len(seg) else 0.0
+            import io as _io
+            import contextlib as _ctx
+            with _ctx.redirect_stdout(_io.StringIO()):
+                res = classify_audio(seg, sr)
+            dial = scorer.process_chunk(
+                word_severity=0, energy=energy, peak=peak,
+                yamnet_top_name=res["sound_name"])
+            dial_label = dial["dial_label"]
+            flagged = bool(
+                res["status"] == "DANGER"
+                or dial_label in ("ELEVATED", "HIGH RISK", "CRITICAL")
+                or dial["voice_severity"] >= 1
+                or dial["event_severity"] >= 1)
+            out.append({
+                "index": idx,
+                "start": idx * chunk_sec,
+                "end": idx * chunk_sec + chunk_sec,
+                "energy": round(energy, 5),
+                "peak": round(peak, 3),
+                "sound_name": res["sound_name"],
+                "status": res["status"],
+                "dial_label": dial_label,
+                "flagged": flagged,
+                "label": prev_labels.get(idx),
+            })
+            idx += 1
+        return jsonify({"name": name, "duration": round(total_sec, 1),
+                        "chunk_sec": chunk_sec, "chunks": out})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/train", methods=["POST"])
+def train_now():
+    """POST — run the Risk Analysis Trainer on your labeled journeys.
+    In-app (no terminal). Reads saved_journeys/*.wav + .label.json, fits a
+    chunk classifier, saves danger_classifier_chunks.pkl. Returns a JSON report."""
+    try:
+        if BASE_DIR not in sys.path:
+            sys.path.insert(0, BASE_DIR)
+        from train_model.train_from_recordings import run_training
+        return jsonify(run_training())
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"ok": False, "message": f"Training failed: {e}"}), 500
+
+
 @app.route("/journeys/<path:filename>", methods=["DELETE"])
 def delete_journey(filename):
     """DELETE — permanently remove a journey WAV file."""
     filepath = os.path.join(JOURNEY_DIR, filename)
     if os.path.exists(filepath):
         os.remove(filepath)
+        lp = _label_path_for(filename)
+        if os.path.exists(lp):
+            os.remove(lp)
         print(f"[Journey] Deleted: {filename}")
         return jsonify({"ok": True, "deleted": filename})
     return jsonify({"error": "File not found"}), 404
@@ -473,6 +716,11 @@ def delete_all_journeys():
         try:
             os.remove(f)
             count += 1
+        except Exception:
+            pass
+    for f in glob.glob(os.path.join(JOURNEY_DIR, "*.label.json")):
+        try:
+            os.remove(f)
         except Exception:
             pass
     # Also clear any pending chunks

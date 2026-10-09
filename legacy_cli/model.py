@@ -21,7 +21,9 @@ from config import (
     TEST_SIZE,
     RANDOM_STATE,
 )
-from feature_extractor import load_dataset
+# Relative import: this package's own 22050 Hz / 20 MFCC extractor, never
+# train_model/audio_features.py or a stray top-level `feature_extractor`.
+from .feature_extractor import load_dataset
 
 
 def train_model():

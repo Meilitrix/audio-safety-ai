@@ -1,6 +1,9 @@
 """
 Train Danger Detection Classifier
 Loads audio from sfx_training folders, extracts features, trains classifier.
+
+Run from the project root:
+    python -m train_model.train_classifier
 """
 
 import os
@@ -11,9 +14,14 @@ import pickle
 from pathlib import Path
 from datetime import datetime
 
-# Add parent dir to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
-from feature_extractor import extract_all_from_folder, features_to_vector, extract_features
+# Allow direct execution (python train_classifier.py) from inside this folder.
+_PKG_DIR = Path(__file__).parent
+if str(_PKG_DIR.parent) not in sys.path:
+    sys.path.insert(0, str(_PKG_DIR.parent))
+
+from train_model.audio_features import (
+    extract_all_from_folder, features_to_vector, extract_features,
+)
 
 # ML imports
 from sklearn.model_selection import cross_val_score, StratifiedKFold

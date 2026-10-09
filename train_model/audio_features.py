@@ -1,6 +1,10 @@
 """
-Audio Feature Extractor for Danger Detection
-Extracts MFCCs, energy, pitch, spectral features from audio files.
+train_model/audio_features.py — Audio Feature Extractor for Danger Detection
+============================================================================
+Extracts MFCCs, energy, pitch and spectral features from audio files.
+Settings: 16 kHz, 13 MFCC, hop 512 — matches train_classifier.py and
+predictor.py.  Not interchangeable with legacy_cli/feature_extractor.py
+(22 050 Hz, 20 MFCC), which belongs to the retired Random-Forest pipeline.
 """
 
 import os
@@ -19,24 +23,41 @@ HOP_LENGTH = 512  # Hop length for frame-based features
 def extract_features(audio_path, sr=SR):
     """
     Extract comprehensive audio features from a single file.
-    
+    Thin wrapper: loads the file, then delegates to
+    extract_features_from_array() so a file and an in-memory chunk produce
+    IDENTICAL feature vectors (same extractor the live/predict path uses).
+    """
+    try:
+        y, sr = librosa.load(audio_path, sr=sr, mono=True)
+    except Exception as e:
+        print(f"  [ERROR] Failed to load {audio_path}: {e}")
+        return None
+    return extract_features_from_array(y, sr)
+
+
+def extract_features_from_array(y, sr=SR):
+    """
+    Extract the SAME feature dict as extract_features(), but from an
+    in-memory mono float array (e.g. a 3-second chunk of a saved journey).
+    This guarantees the vector produced for a recorded/live chunk matches
+    the training extractor exactly.
+
     Returns dict with:
     - mfcc_mean: mean MFCC coefficients (13,)
     - mfcc_std: std MFCC coefficients (13,)
-    - energy_mean: mean RMS energy
-    - energy_std: std RMS energy
-    - energy_max: max RMS energy (peak)
+    - energy_mean / energy_std / energy_max: RMS energy stats
     - zcr_mean: mean zero-crossing rate
-    - spectral_centroid_mean: mean spectral centroid
-    - spectral_rolloff_mean: mean spectral rolloff
+    - spectral_centroid_mean / spectral_rolloff_mean
     - chroma_mean: mean chroma features (12,)
+    - spectral_contrast_mean
     - duration: audio duration in seconds
     """
     try:
-        # Load audio
-        y, sr = librosa.load(audio_path, sr=sr, mono=True)
+        y = np.asarray(y, dtype=np.float32).flatten()
+        if len(y) < HOP_LENGTH * 2:
+            return None
         duration = len(y) / sr
-        
+
         # MFCCs (Mel-frequency cepstral coefficients)
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=N_MFCC, hop_length=HOP_LENGTH)
         mfcc_mean = np.mean(mfcc, axis=1)
@@ -80,9 +101,9 @@ def extract_features(audio_path, sr=SR):
             'spectral_contrast_mean': contrast_mean.tolist(),
             'duration': float(duration),
         }
-        
+
     except Exception as e:
-        print(f"  [ERROR] Failed to extract features from {audio_path}: {e}")
+        print(f"  [ERROR] Failed to extract features: {e}")
         return None
 
 

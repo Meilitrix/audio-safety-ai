@@ -1,9 +1,15 @@
 """
-config.py — Central Configuration File
-=======================================
-All tunable settings live here so you never have to dig through
-other files to change something.  Think of this as the "control panel"
-for the whole project.
+config.py — Settings for the LEGACY CLI pipeline
+=================================================
+⚠️  The live web app does NOT read this file.  `server.py` defines its own
+runtime constants (CONFIDENCE_THRESHOLD, buffer sizes) at the top of the
+module, and `train_model/audio_features.py` defines its own sample rate.
+Only `legacy_cli/` imports these values, so changing anything here affects
+the retired pipeline alone.
+
+Known duplication to resolve if the legacy path is ever revived:
+  - CONFIDENCE_THRESHOLD here = 0.6, in server.py = 0.80
+  - SAMPLE_RATE here = 22050, in train_model/audio_features.py = 16000
 """
 
 import os
@@ -42,4 +48,6 @@ CONTINUOUS_ALERT_SECONDS = 5  # Cooldown between repeated alerts
 # ── Alert / Emergency Centre Settings ────────────────────────────────
 # Replace with your real emergency-centre webhook URL
 ALERT_WEBHOOK_URL = "https://your-emergency-centre.com/api/alert"
-ALERT_ENABLED = True       # Set False to test without sending real alerts
+# Opt-IN, not opt-out.  While ALERT_WEBHOOK_URL is the placeholder above,
+# alert_system.py blocks outbound posts regardless of this flag.
+ALERT_ENABLED = False      # Set True only after configuring a real endpoint

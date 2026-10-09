@@ -16,7 +16,19 @@ Classification rules (ride-sharing tuned):
   • Finger scratches, mouth noises, plastic sounds → SAFE (not crash)
 """
 
+import os
 import numpy as np
+
+# Pin the TensorFlow Hub cache to a project-local folder BEFORE importing hub.
+# Reason: by default hub caches under the OS temp dir, where a download that
+# gets interrupted mid-way leaves a partial module (assets/variables but no
+# saved_model.pb) that hub then reuses forever — which silently breaks
+# classification on every chunk (the cause of every "Classification error").
+# A dedicated folder we control lets us detect + self-heal that.
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_MODEL_CACHE_DIR = os.path.join(_BASE_DIR, "model_cache")
+os.environ.setdefault("TFHUB_CACHE_DIR", _MODEL_CACHE_DIR)
+
 import tensorflow as tf
 import tensorflow_hub as hub
 import librosa
@@ -90,16 +102,36 @@ SAFE_INDICES = {
 #  MODEL LOADING
 # ══════════════════════════════════════════════════════════════════════
 
+def _clear_hub_cache():
+    """Delete the project-local hub cache so the next load re-downloads cleanly."""
+    import shutil
+    try:
+        if os.path.isdir(_MODEL_CACHE_DIR):
+            shutil.rmtree(_MODEL_CACHE_DIR, ignore_errors=True)
+    except Exception as e:
+        print(f"[Engine] Could not clear cache ({e}).")
+    os.makedirs(_MODEL_CACHE_DIR, exist_ok=True)
+
+
 def _load_model():
-    """Download YAMNet once, cache forever. Thread-safe."""
+    """Download YAMNet once, cache forever. Thread-safe, self-healing."""
     global _MODEL, _CLASS_NAMES
     if _MODEL is not None:
         return _MODEL, _CLASS_NAMES
     with _MODEL_LOCK:
         if _MODEL is not None:
             return _MODEL, _CLASS_NAMES
-        print("[Engine] Loading YAMNet (first time ~30 s)...")
-        _MODEL = hub.load(_YAMNET_URL)
+        os.makedirs(_MODEL_CACHE_DIR, exist_ok=True)
+        print(f"[Engine] Loading YAMNet (cache -> {_MODEL_CACHE_DIR})...")
+        try:
+            _MODEL = hub.load(_YAMNET_URL)
+        except Exception as e:
+            # Almost always a partial/corrupt cached module. Clear + retry once
+            # so the app self-heals instead of silently returning errors forever.
+            print(f"[Engine] YAMNet load failed ({e}).\n"
+                  f"[Engine] Clearing cache and re-downloading once...")
+            _clear_hub_cache()
+            _MODEL = hub.load(_YAMNET_URL)
         _CLASS_NAMES = _load_class_names_csv()
         print(f"[Engine] YAMNet ready — {len(_CLASS_NAMES)} classes loaded.")
         if len(_CLASS_NAMES) > 386:
@@ -342,12 +374,17 @@ def classify_audio(audio, sr=16000):
                 danger_conf = combined
                 danger_reason = "Screaming (pitch detected)"
 
-    # ── Signal C: Sudden silence (car stopping) ─────────────────────
-    if energy_signal == "SILENCE" and energy_level > 0.7:
-        silence_conf = 0.5 + energy_level * 0.3
-        if silence_conf > danger_conf:
-            danger_conf = silence_conf
-            danger_reason = "Sudden silence (vehicle stop?)"
+    # ── Signal C: Sudden silence — NOT a standalone danger trigger ──
+    # A quiet gap on its own is normal (red lights, pauses in conversation,
+    # the car simply stopping).  It only means danger as a *pattern* --
+    # screams/thuds THEN silence -- and that is a cross-chunk judgement.
+    # classify_audio() is stateless per chunk, so it can never see the
+    # preceding threat; temporal patterns belong in the DangerScorer (which
+    # keeps history), not here.  The "SILENCE" energy_signal is still
+    # computed and returned below, so the dial can use it if we wire up the
+    # pattern later.
+    # (Removed: an isolated silence chunk used to set danger_conf >= 0.5, which
+    #  always crossed DANGER_THRESHOLD and fired DANGER on every quiet moment.)
 
     # ── Final decision ──────────────────────────────────────────────
     if danger_conf >= DANGER_THRESHOLD:

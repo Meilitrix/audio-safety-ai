@@ -1,6 +1,9 @@
 """
 Danger Predictor — loads trained model and predicts on new audio.
 Used by server.py to classify audio chunks.
+
+Features come from train_model/audio_features.py (16 kHz, 13 MFCC + stats).
+A model trained with any other extractor is NOT compatible with this one.
 """
 
 import os
@@ -8,7 +11,7 @@ import pickle
 import numpy as np
 from pathlib import Path
 
-from feature_extractor import extract_features, features_to_vector
+from .audio_features import extract_features, features_to_vector
 
 
 MODEL_DIR = Path(__file__).parent / "models"

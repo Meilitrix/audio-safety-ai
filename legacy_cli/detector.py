@@ -1,6 +1,9 @@
 """
-detector.py — Real-Time Detection with Smoothing Buffer
-=========================================================
+legacy_cli/detector.py — Real-Time Detection for the RETIRED CLI pipeline
+==========================================================================
+⚠️  Not used by server.py.  The live app does its own chunk handling and
+smoothing inside server.py (see _smooth_add / _smooth_stable).
+
 Key stability rule:  DANGER must be detected in TWO CONSECUTIVE
 audio chunks before the dashboard status flips.  A single spike
 (finger scratch, mouth noise, door close) is ignored.
@@ -16,8 +19,8 @@ import numpy as np
 import sounddevice as sd
 
 from config import SAMPLE_RATE, CHUNK_DURATION, CONFIDENCE_THRESHOLD
-from yamnet_engine import classify_audio
-from alert_system import AlertSystem
+from yamnet_engine import classify_audio          # root-level, live AI core
+from .alert_system import AlertSystem             # sibling in this package
 
 
 # ══════════════════════════════════════════════════════════════════════

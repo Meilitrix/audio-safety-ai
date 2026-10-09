@@ -317,6 +317,8 @@ body{display:flex;justify-content:center;padding:16px 12px 40px}
   <div class="ctrl-row">
     <button class="btn-sm btn-del" onclick="deleteAllRecordings()">Delete All Recordings</button>
     <button class="btn-sm" onclick="loadJourneys()">Refresh Journeys</button>
+    <button class="btn-sm" onclick="trainNow(this)" title="Train the risk model on your labeled journeys">Risk Analysis Trainer</button>
+    <button class="btn-sm" id="chunkToggle" onclick="toggleChunkModel(this)" title="Use the model trained on YOUR journeys in the live dial">Trained Model: OFF</button>
   </div>
 
   <div class="stats">
@@ -625,8 +627,12 @@ async function startMonitor() {
         fetch(SERVER + "/upload_chunk", { method: "POST", body: fd })
           .then(r => r.json())
           .then(json => {
-            if (json.error && json.sound_name === "Server error") {
-              addChunk("danger", json.error);
+            // A chunk whose classification threw (raw_status=ERROR, or an `error`
+            // field) must NOT be shown as a normal OK reading — surface it as a
+            // failure so a blind pipeline can't masquerade as a safe one.
+            if (json.raw_status === "ERROR" || json.error) {
+              addChunk("danger", "Chunk #" + idx + ": AI ERROR — "
+                       + (json.error || json.sound_name || "classification failed"));
             } else {
               handleResult(json);
             }
@@ -745,6 +751,12 @@ function handleResult(res) {
   const voiceSev = res.voice_severity || 0;
   const eventSev = res.event_severity || 0;
   const chunkScore = res.chunk_score || 0;
+
+  // Surface when the journey-trained model contributes (proof your data is live)
+  if (res.chunk_model_prob != null && res.chunk_model_prob >= 0.5) {
+    addChunk(res.chunk_model_prob >= 0.7 ? "danger" : "idle",
+             "[Trained model] " + (res.chunk_model_prob * 100).toFixed(0) + "% danger");
+  }
 
   // Map dial_level (0-4) to gauge
   setGauge(dialLevel);
@@ -1004,7 +1016,13 @@ function loadJourneys() {
       $("archiveList").innerHTML = '<div class="archive-empty">No journeys saved yet</div>';
       return;
     }
-    $("archiveList").innerHTML = d.journeys.map(j => `
+    $("archiveList").innerHTML = d.journeys.map(j => {
+      const badge = j.label === "safe"
+        ? '<span style="color:#22C55E;font-weight:700">SAFE</span>'
+        : j.label === "danger"
+        ? '<span style="color:#EF4444;font-weight:700">DANGER · ' + (j.n_danger || 0) + '</span>'
+        : '<span style="color:#64748B">unlabeled</span>';
+      return `
       <div class="j-item" id="j-${j.name}">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="j-name">${j.name}</div>
@@ -1014,10 +1032,21 @@ function loadJourneys() {
             cursor:pointer;letter-spacing:1px;text-transform:uppercase;
           ">Delete</button>
         </div>
-        <div class="j-meta">${j.size_kb} KB - ${j.created}</div>
-        <audio controls preload="none" src="/saved_journeys/${j.name}"></audio>
-      </div>
-    `).join("");
+        <div class="j-meta">${j.size_kb} KB - ${j.created} · ${badge}</div>
+        <audio controls preload="none" src="/saved_journeys/${j.name}" id="aud-${j.name}"></audio>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button onclick="markJourneySafe('${j.name}')" style="
+            background:transparent;border:1px solid #22C55E;color:#22C55E;
+            border-radius:6px;padding:3px 10px;font-size:9px;font-weight:700;
+            cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Mark all safe</button>
+          <button onclick="openReview('${j.name}')" style="
+            background:transparent;border:1px solid #3B82F6;color:#3B82F6;
+            border-radius:6px;padding:3px 10px;font-size:9px;font-weight:700;
+            cursor:pointer;letter-spacing:1px;text-transform:uppercase;">Review chunks</button>
+        </div>
+        <div id="rev-${j.name}" style="display:none;margin-top:8px"></div>
+      </div>`;
+    }).join("");
   }).catch(() => {});
 }
 
@@ -1033,6 +1062,124 @@ function deleteJourney(name) {
       }
     })
     .catch(err => console.error("Delete failed:", err.message));
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  JOURNEY LABELLING (human-in-the-loop training data)
+// ═══════════════════════════════════════════════════════════════
+function markJourneySafe(name) {
+  fetch(SERVER + "/label_journey", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ name, label: "safe", chunks: [] })
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { addChunk("idle", "Marked " + name + " SAFE"); loadJourneys(); }
+  }).catch(() => alert("Label failed"));
+}
+
+function openReview(name) {
+  const box = document.getElementById("rev-" + name);
+  if (!box) return;
+  if (box.style.display !== "none") { box.style.display = "none"; return; }
+  box.style.display = "block";
+  box.innerHTML = '<div style="color:#64748B;font-size:11px">Analyzing chunks (runs YAMNet + dial)…</div>';
+  fetch(SERVER + "/journey_chunks?name=" + encodeURIComponent(name))
+    .then(r => r.json()).then(d => {
+      if (d.error) { box.innerHTML = '<div style="color:#EF4444;font-size:11px">' + d.error + '</div>'; return; }
+      renderReview(name, d);
+    }).catch(() => { box.innerHTML = '<div style="color:#EF4444;font-size:11px">Review failed</div>'; });
+}
+
+function renderReview(name, data) {
+  const box = document.getElementById("rev-" + name);
+  const flaggedFirst = data.chunks.slice().sort((a, b) => (b.flagged ? 1 : 0) - (a.flagged ? 1 : 0));
+  const rows = flaggedFirst.map(c => {
+    const tag = c.flagged ? ' <span style="color:#F59E0B;font-weight:700">[flag]</span>' : '';
+    return `
+      <div class="rev-row" data-idx="${c.index}" data-label="${c.label || ''}"
+           style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid rgba(148,163,184,.12);font-size:11px">
+        <button onclick="playChunk('${name}',${c.start},${c.end})" title="play ${c.start}-${c.end}s"
+                style="background:transparent;border:1px solid #3B82F6;color:#3B82F6;border-radius:5px;padding:2px 8px;font-size:10px;cursor:pointer">Play</button>
+        <span style="min-width:34px;color:${c.flagged ? '#F59E0B' : '#64748B'}">#${c.index}</span>
+        <span style="flex:1;color:#CBD5E1">${c.sound_name} · ${c.dial_label}${tag}</span>
+        <button onclick="labelChunk(this,'danger')" style="border:1px solid #EF4444;color:#EF4444;background:transparent;border-radius:5px;padding:2px 6px;font-size:9px;cursor:pointer">danger</button>
+        <button onclick="labelChunk(this,'safe')" style="border:1px solid #22C55E;color:#22C55E;background:transparent;border-radius:5px;padding:2px 6px;font-size:9px;cursor:pointer">safe</button>
+        <button onclick="labelChunk(this,'ignore')" style="border:1px solid #64748B;color:#94A3B8;background:transparent;border-radius:5px;padding:2px 6px;font-size:9px;cursor:pointer">skip</button>
+      </div>`;
+  }).join("");
+  box.innerHTML = `
+    <div style="font-size:11px;color:#94A3B8;margin-bottom:4px">${data.duration}s · ${data.chunks.length} chunks · mark the <b>[flag]</b> ones that are REAL danger; everything you don't mark is treated as safe.</div>
+    ${rows}
+    <div style="margin-top:8px">
+      <button onclick="saveReview('${name}')" style="background:#3B82F6;color:#fff;border:none;border-radius:6px;padding:5px 12px;font-size:10px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase">Save labels</button>
+    </div>`;
+}
+
+function playChunk(name, start, end) {
+  const a = document.getElementById("aud-" + name);
+  if (!a) return;
+  a.currentTime = start;
+  a.play();
+  const stop = setInterval(() => { if (a.currentTime >= end) { a.pause(); clearInterval(stop); } }, 100);
+}
+
+function labelChunk(btn, lab) {
+  const row = btn.closest(".rev-row");
+  row.dataset.label = lab;
+  row.style.background = lab === "danger" ? "rgba(239,68,68,.14)" : "transparent";
+  row.style.opacity = lab === "ignore" ? "0.4" : "1";
+}
+
+function saveReview(name) {
+  const box = document.getElementById("rev-" + name);
+  const rows = box.querySelectorAll(".rev-row");
+  const chunks = [];
+  let anyDanger = false;
+  rows.forEach(r => {
+    const lab = r.dataset.label;
+    if (lab) {
+      chunks.push({ index: parseInt(r.dataset.idx), label: lab });
+      if (lab === "danger") anyDanger = true;
+    }
+  });
+  if (!anyDanger) {
+    if (!confirm("No chunk was marked danger. Save this journey as all-safe instead?")) return;
+    markJourneySafe(name); return;
+  }
+  fetch(SERVER + "/label_journey", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ name, label: "danger", chunks })
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { addChunk("idle", "Saved labels for " + name + " (" + d.n_danger + " danger)"); loadJourneys(); }
+  }).catch(() => alert("Save failed"));
+}
+
+function trainNow(btn) {
+  if (!confirm("Run the Risk Analysis Trainer on your labeled journeys now?")) return;
+  const old = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "Training…"; }
+  fetch(SERVER + "/train", { method: "POST" })
+    .then(r => r.json()).then(d => {
+      addChunk("idle", "[Trainer] " + (d.message || "done"));
+      alert(d.message || "Training finished.");
+      loadJourneys();
+    })
+    .catch(() => alert("Training request failed."))
+    .finally(() => { if (btn) { btn.disabled = false; btn.textContent = old; } });
+}
+
+let chunkModelOn = false;
+function toggleChunkModel(btn) {
+  chunkModelOn = !chunkModelOn;
+  fetch(SERVER + "/set_model", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ enabled: chunkModelOn })
+  }).then(r => r.json()).then(d => {
+    chunkModelOn = !!d.enabled;
+    btn.textContent = "Trained Model: " + (chunkModelOn ? "ON" : "OFF");
+    addChunk("idle", "Trained model " + (chunkModelOn
+      ? "ON \u2014 your journeys now drive the dial"
+      : "OFF \u2014 YAMNet + rules only"));
+  }).catch(() => alert("Toggle failed"));
 }
 
 // ── Init ──

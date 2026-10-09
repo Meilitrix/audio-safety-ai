@@ -27,6 +27,8 @@ saved_journeys/
 _audio_chunks/
 _record_state.json
 ai_result.json
+eval_report.json
+chunk_model_report.json
 *.wav
 !index.html
 
@@ -37,6 +39,8 @@ ai_result.json
 *.pkl
 models/
 train_model/models/
+# YAMNet TensorFlow Hub cache downloaded at runtime (~50 MB, re-fetchable)
+model_cache/
 
 # ── Backups & setup scripts ──
 *_backup*

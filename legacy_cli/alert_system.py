@@ -19,6 +19,10 @@ from config import (
     CONTINUOUS_ALERT_SECONDS,
 )
 
+# Placeholder shipped in config.py.  Real HTTP POSTs to it can only fail, and
+# "emergency alert" code must never fire at an unroutable host by accident.
+PLACEHOLDER_WEBHOOK = "your-emergency-centre.com"
+
 
 class AlertSystem:
     """
@@ -94,6 +98,16 @@ class AlertSystem:
             print("\n   📝 [DEMO MODE] Alert logged but NOT sent.")
             print(f"   📝 [DEMO MODE] To enable real alerts, set "
                   f"ALERT_ENABLED = True in config.py")
+            self._last_alert_time = time.time()
+            self.alert_count += 1
+            return True
+
+        # ── Guard: refuse to post at the placeholder URL ────────────
+        if PLACEHOLDER_WEBHOOK in (self.webhook_url or ""):
+            print("\n   🛑 [BLOCKED] ALERT_WEBHOOK_URL is still the placeholder "
+                  f"in config.py ({self.webhook_url}).")
+            print("   🛑 [BLOCKED] Alert logged but NOT sent. Set a real "
+                  "emergency-centre endpoint first.")
             self._last_alert_time = time.time()
             self.alert_count += 1
             return True

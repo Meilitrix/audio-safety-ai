@@ -19,12 +19,12 @@ Four rule types:
   Rule 3 -- Escalation:      severity increasing across chunks -> bonus
   Rule 4 -- Combination:     multiple signals in same chunk -> bonus
 
-Dial levels:
+Dial levels (retuned to damp benign-loudness false alarms):
   0       -> NORMAL      (green)
-  1-2     -> CONCERNING  (yellow)
-  3-4     -> ELEVATED    (orange)
-  5-7     -> HIGH RISK   (red)
-  8+      -> CRITICAL    (flashing red)
+  2-4     -> CONCERNING  (yellow)
+  5-8     -> ELEVATED    (orange)
+  9-12    -> HIGH RISK   (red)
+  13+     -> CRITICAL    (flashing red)
 
 Calibrated against:
   - 10 car cabin recordings (309 chunks, 0 false positives)
@@ -59,6 +59,12 @@ EVENT_THUMP_ENERGY    = 0.015   # "Thump, thud" only if above this
 CRASH_CLASSES    = {"Crash", "Collapse"}
 IMPACT_CLASSES   = {"Thump, thud"}
 CONCERN_CLASSES  = {"Glass", "Explosion", "Fire", "Artillery fire"}
+# ── Vocal distress labels that YAMNet itself emits (see yamnet_engine
+#    DANGER_INDICES + the pitch-detected reason string).  When the engine
+#    has already classified a chunk as a scream/shout, that IS corroborated
+#    event evidence — the dial must honour it instead of falling back to
+#    raw energy alone (which zeroed short/quiet screams). ──
+VOCAL_DANGER_CLASSES = {"Scream", "Shriek", "Shout", "Yell"}
 SAFE_CLASSES     = {   # YAMNet classes that are always safe
     "Music", "Speech", "Conversation", "Child speech",
     "Narration", "Babbling", "Children playing",
@@ -72,16 +78,16 @@ SAFE_CLASSES     = {   # YAMNet classes that are always safe
 
 DIAL_LEVELS = [
     (0, "NORMAL"),
-    (1, "CONCERNING"),
-    (3, "ELEVATED"),
-    (5, "HIGH RISK"),
-    (8, "CRITICAL"),
+    (2, "CONCERNING"),
+    (5, "ELEVATED"),
+    (9, "HIGH RISK"),
+    (13, "CRITICAL"),
 ]
 
-# Decay / recovery
-DECAY_PER_CHUNK              = 0.5
-CONSECUTIVE_NORMAL_FOR_DECAY = 8    # chunks of normal before decay
-MAINTENANCE_WINDOW           = 8    # chunks after danger before decay
+# Decay / recovery (recovery made faster so a brief loud burst relaxes quickly)
+DECAY_PER_CHUNK              = 1.0
+CONSECUTIVE_NORMAL_FOR_DECAY = 4    # chunks of normal before decay
+MAINTENANCE_WINDOW           = 4    # chunks after danger before decay
 
 # Repetition / escalation windows
 REPETITION_WINDOW = 5
@@ -143,6 +149,15 @@ class DangerScorer:
         if yamnet_top_name in CRASH_CLASSES:
             return {"severity": 2, "type": "crash", "detail": yamnet_top_name}
 
+        # YAMNet already judged this chunk as vocal distress (Scream/Shriek/
+        # Shout/Yell or a pitch-detected scream). Treat it as a real event so
+        # short or quiet screams can accumulate on the dial. Checked BEFORE the
+        # voice-dominated zeroing below, which would otherwise discard it.
+        if yamnet_top_name in VOCAL_DANGER_CLASSES or \
+                yamnet_top_name.startswith("Screaming"):
+            return {"severity": 2, "type": "vocal_danger",
+                    "detail": yamnet_top_name}
+
         # Concern classes only with sufficient energy
         if yamnet_top_name in CONCERN_CLASSES and energy > EVENT_ENERGY_FLOOR:
             return {"severity": 2, "type": "danger_sound",
@@ -169,21 +184,17 @@ class DangerScorer:
                         "detail": f"E={energy:.4f}, P={peak:.2f}"}
             return {"severity": 0, "type": "none", "detail": "normal cabin"}
 
-        # Energy-based detection for sounds YAMNet misclassifies
-        # Skip if YAMNet identifies a known safe class (music, speech, etc.)
-        if energy > EVENT_ENERGY_FLOOR:
-            if yamnet_top_name not in SAFE_CLASSES:
-                if peak > EVENT_PEAK_IMPACT:
-                    return {"severity": 2, "type": "impact",
-                            "detail": f"E={energy:.4f}, P={peak:.2f}"}
-                return {"severity": 1, "type": "anomaly",
-                        "detail": f"E={energy:.4f}, P={peak:.2f}"}
-
-        # Peak-only transient (slap/whip with low overall energy)
-        if peak > 0.75:
-            return {"severity": 1, "type": "transient",
-                    "detail": f"P={peak:.2f}"}
-
+        # ── No generic "loud + unknown label = impact" fallback. ──
+        #    The previous fallback fired whenever YAMNet's top label was not
+        #    *literally* in SAFE_CLASSES and the sound was loud.  YAMNet has
+        #    521 classes and the safe-list is tiny, so ordinary sounds
+        #    (silence -> "Spray", car -> "Door", room noise -> "Cheering")
+        #    were constantly scored as severity-2 impacts.  Because an event
+        #    is a "strong" signal, the dial then accumulated on every chunk and
+        #    NEVER decayed -- the exact "maxes out and stays there" bug.
+        #    Real physical danger is already covered by CRASH_CLASSES,
+        #    CONCERN_CLASSES, IMPACT ("Thump, thud") and VOCAL_DANGER above.
+        #    Loudness alone is no longer treated as evidence of danger.
         return {"severity": 0, "type": "none", "detail": "normal"}
 
     # ══════════════════════════════════════════════════════════════════
@@ -264,8 +275,21 @@ class DangerScorer:
     #  MAIN PROCESSOR
     # ══════════════════════════════════════════════════════════════════
 
+    @staticmethod
+    def _model_points(model_danger_prob):
+        """Signal D -- the journey-trained chunk model's confidence.
+        0 unless the trained model saw danger, so a quiet-but-real chunk
+        can accumulate on the dial over time. Default (0.0) => no change."""
+        if not model_danger_prob or model_danger_prob <= 0:
+            return 0.0
+        if model_danger_prob >= 0.90:
+            return 2.0
+        if model_danger_prob >= 0.70:
+            return 1.0
+        return 0.0
+
     def process_chunk(self, word_severity=0, energy=0.0, peak=0.0,
-                      yamnet_top_name=""):
+                      yamnet_top_name="", model_danger_prob=0.0):
         """
         Process one 3-second chunk through the full scoring pipeline.
 
@@ -275,6 +299,8 @@ class DangerScorer:
         energy : float           (mean squared energy of audio)
         peak : float             (peak absolute amplitude)
         yamnet_top_name : str    (top YAMNet class name)
+        model_danger_prob : float 0..1  (P(danger) from the journey-trained
+            chunk model; 0 disables it -> identical to prior behaviour)
 
         Returns dict with full scoring breakdown.
         """
@@ -287,7 +313,8 @@ class DangerScorer:
         word_pts = float(word_severity)        # 0-3
         voice_pts = float(voice_sev)           # 0-2
         event_pts = float(event["severity"])   # 0-2
-        base_sum = word_pts + voice_pts + event_pts
+        model_pts = self._model_points(model_danger_prob)  # 0-2 (journey model)
+        base_sum = word_pts + voice_pts + event_pts + model_pts
 
         # Step 3: Repetition bonus (Rule 2)
         rep_bonus = self._repetition_bonus(word_severity, voice_sev)
@@ -301,9 +328,19 @@ class DangerScorer:
         # Step 6: Chunk contribution
         chunk_score = base_sum + rep_bonus + esc_bonus + combo_bonus
 
-        # Cap voice-only contribution (no event corroboration)
-        if voice_pts > 0 and event_pts == 0 and word_pts == 0:
+        # Cap voice-only contribution (no event/word/model corroboration)
+        if voice_pts > 0 and event_pts == 0 and word_pts == 0 and model_pts == 0:
             chunk_score = min(chunk_score, 1.5)
+
+        # NO accumulation from weak, uncorroborated signals.  A chunk counts as
+        # danger evidence only if it is scream-level voice (2), an impact/crash
+        # event (2), a keyword, or a trained-model vote.  Ordinary talking or
+        # room noise (voice 1, no event) adds nothing and lets the dial DECAY --
+        # this is the fix for "the dial maxes on talking and never comes back".
+        strong = (voice_sev >= 2 or event_pts >= 2 or
+                  word_pts > 0 or model_pts > 0)
+        if not strong:
+            chunk_score = 0.0
 
         # Step 7: Accumulate
         self.accumulated_score += chunk_score
@@ -335,6 +372,8 @@ class DangerScorer:
             "event_severity": event["severity"],
             "event_type": event["type"],
             "event_detail": event["detail"],
+            "model_danger_prob": model_danger_prob,
+            "model_pts": model_pts,
             "word_pts": word_pts,
             "voice_pts": voice_pts,
             "event_pts": event_pts,

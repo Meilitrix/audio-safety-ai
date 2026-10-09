@@ -1,6 +1,12 @@
 """
-feature_extractor.py — Turn Audio Into Numbers the AI Can Understand
-=====================================================================
+legacy_cli/feature_extractor.py — MFCC extractor for the RETIRED pipeline
+==========================================================================
+⚠️  Not the same code as train_model/audio_features.py.
+    this file : 22 050 Hz, 20 MFCC   → feeds legacy_cli/model.py (Random Forest)
+    audio_features.py : 16 000 Hz, 13 MFCC → feeds train_model/train_classifier.py
+    Their feature vectors are NOT interchangeable.  Import this one as
+    `from legacy_cli import feature_extractor`, never as a bare `feature_extractor`.
+
 Raw audio is just a wiggly line.  AI models can't learn from a wiggly
 line directly.  So we convert each audio clip into a compact "fingerprint"
 called MFCCs (Mel-Frequency Cepstral Coefficients).
