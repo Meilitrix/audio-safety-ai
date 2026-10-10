@@ -60,3 +60,6 @@ github_setup.bat
 *.txt
 !requirements.txt
 !dial_behaviour_log.txt
+
+# browser audit screenshots - local working notes, not part of the app
+audit_*.png

@@ -98,10 +98,20 @@ DIAL_LEVELS = [
     (13, "CRITICAL"),
 ]
 
-# Decay / recovery (recovery made faster so a brief loud burst relaxes quickly)
-DECAY_PER_CHUNK              = 1.0
+# Decay / recovery.
+# DECAY_PER_CHUNK used to be 1.0, which is almost the entire worth of a loud
+# chunk (voice-only chunks are capped at 1.5) -- so a real scream took six
+# chunks (18 s) to build up and four quiet chunks (12 s) to erase.  Distress
+# words in particular are not ambient noise; they should not be forgotten that
+# fast.  Decay is now slower and is additionally blocked by the memory below.
+DECAY_PER_CHUNK              = 0.5
 CONSECUTIVE_NORMAL_FOR_DECAY = 4    # chunks of normal before decay
 MAINTENANCE_WINDOW           = 4    # chunks after danger before decay
+
+# Distress memory: once a hard signal is seen (a level-2+ word, or a
+# scream-level voice), the dial may rise freely but is not allowed to fall
+# below the level it reached for this many chunks.  20 chunks = 60 seconds.
+DISTRESS_HOLD_CHUNKS = 20
 
 # Repetition / escalation windows
 REPETITION_WINDOW = 5
@@ -129,6 +139,8 @@ class DangerScorer:
         self.history = []
         self.consecutive_normal = 0
         self.chunks_since_danger = 999
+        self.distress_floor = 0.0     # score a confirmed threat lifted us to
+        self.distress_hold = 0        # chunks left before that floor expires
         self.voice_severity_history = []
         self.word_severity_history = []
         self.event_history = []
@@ -342,17 +354,20 @@ class DangerScorer:
         # Step 6: Chunk contribution
         chunk_score = base_sum + rep_bonus + esc_bonus + combo_bonus
 
-        # Cap voice-only contribution (no event/word/model corroboration)
-        if voice_pts > 0 and event_pts == 0 and word_pts == 0 and model_pts == 0:
+        # Cap voice-only contribution (no event/word/model corroboration).
+        # A level-1 word ("no", "stop", "bas") is ordinary conversation, so it
+        # does not count as corroboration on its own; level 2+ does.
+        if voice_pts > 0 and event_pts == 0 and word_pts < 2 and model_pts == 0:
             chunk_score = min(chunk_score, 1.5)
 
         # NO accumulation from weak, uncorroborated signals.  A chunk counts as
         # danger evidence only if it is scream-level voice (2), an impact/crash
-        # event (2), a keyword, or a trained-model vote.  Ordinary talking or
-        # room noise (voice 1, no event) adds nothing and lets the dial DECAY --
-        # this is the fix for "the dial maxes on talking and never comes back".
+        # event (2), a distress word (level 2+), or a trained-model vote.
+        # Ordinary talking or room noise (voice 1, no event) adds nothing and
+        # lets the dial DECAY -- this is the fix for "the dial maxes on talking
+        # and never comes back".
         strong = (voice_sev >= 2 or event_pts >= 2 or
-                  word_pts > 0 or model_pts > 0)
+                  word_pts >= 2 or model_pts > 0)
         if not strong:
             chunk_score = 0.0
 
@@ -369,6 +384,21 @@ class DangerScorer:
 
         # Step 9: Apply decay
         self._apply_decay()
+
+        # Step 9b: Distress memory.
+        # A confirmed threat sets a floor; the dial may climb past it freely,
+        # and quiet chunks cannot pull it back down until the memory expires.
+        # This is what makes "bachao" mean something instead of being erased by
+        # the next four seconds of road noise.
+        if word_pts >= 2 or voice_sev >= 2:
+            self.distress_floor = max(self.distress_floor, self.accumulated_score)
+            self.distress_hold = DISTRESS_HOLD_CHUNKS
+        if self.distress_hold > 0:
+            self.distress_hold -= 1
+            if self.accumulated_score < self.distress_floor:
+                self.accumulated_score = self.distress_floor
+        else:
+            self.distress_floor = 0.0
 
         # Step 10: Map to dial level
         self.dial_level = 0

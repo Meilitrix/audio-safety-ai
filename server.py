@@ -38,6 +38,8 @@ from flask import (
 )
 from flask_cors import CORS
 
+from keyword_matcher import match_words
+
 # ── Suppress TensorFlow warnings BEFORE any TF import ──────────────────
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
@@ -164,7 +166,11 @@ def _get_custom_predictor():
 # ── Journey-trained CHUNK model (feeds the live dial), behind a toggle ──
 _chunk_model = None
 _chunk_model_checked = False
-_chunk_model_enabled = False         # flipped by POST /set_model (UI toggle)
+# ON by default: measured on chunks the user labelled by hand, this model read
+# 97% on danger chunks that were NOT loud, not labelled a danger sound and had
+# no keyword - i.e. it is the only sensor that sees quiet danger, and it read
+# 25-32% on safe audio.  POST /set_model still flips it for A/B testing.
+_chunk_model_enabled = True          # flipped by POST /set_model (UI toggle)
 
 
 def _get_chunk_model():
@@ -344,9 +350,22 @@ def upload_chunk():
         # ── Compute raw audio metrics for the danger scorer ──
         raw_energy = float(np.mean(audio ** 2))
         raw_peak   = float(np.max(np.abs(audio)))
+        # Loudness the scorer needs is the LOUDEST 100 ms in the window, not the
+        # 3-second average.  A cry lasting half a second inside a 3-second chunk
+        # is surrounded by silence, so the average calls it quiet - which is
+        # exactly why burst crying never escalated.  Peak was already
+        # instantaneous; energy now matches that same idea.
+        frame = max(1, int(0.1 * sr))
+        n_frames = len(audio) // frame
+        if n_frames > 0:
+            frames = audio[: n_frames * frame].reshape(n_frames, frame)
+            loud_energy = float(np.max(np.mean(frames ** 2, axis=1)))
+        else:
+            loud_energy = raw_energy
 
         print(f"  [Audio] sr={sr}, duration={len(audio)/sr:.1f}s, "
-              f"samples={len(audio)}, energy={raw_energy:.6f}, peak={raw_peak:.3f}")
+              f"samples={len(audio)}, peak={raw_peak:.3f}, "
+              f"loud-frame energy={loud_energy:.6f} (3s avg {raw_energy:.6f})")
 
         # ── Classify via YAMNet ──
         classify = _get_classify()
@@ -395,11 +414,31 @@ def upload_chunk():
         kw_risk = speech_info.get("risk_score", 0)
         word_severity = min(3, int(kw_risk))
 
-        # Also accept word_severity from frontend if provided
+        # A client may send the raw words it heard; the BRAIN decides whether
+        # those words are distress.  Matching here instead of inside each client
+        # means the dashboard, SaferRide and any future app are judged against
+        # one dictionary (distress_keywords.json) under one set of rules.
+        heard = (request.form.get("transcript") or "").strip()
+        word_source = "none"
+        if heard and not transcript:
+            transcript = heard
+        if heard:
+            t_sev, t_kw = match_words(heard)
+            if t_sev > word_severity:
+                word_severity = t_sev
+                word_source = "brain_dictionary"
+            if t_kw and not keywords:
+                keywords = t_kw
+            if t_sev:
+                print(f"  [Words] {t_sev}/3 in {heard[:60]!r} -> {t_kw}")
+
+        # Also accept word_severity already computed by a frontend
         frontend_ws = request.form.get("word_severity")
         if frontend_ws is not None:
             try:
-                word_severity = max(word_severity, min(3, int(frontend_ws)))
+                if min(3, int(frontend_ws)) > word_severity:
+                    word_severity = min(3, int(frontend_ws))
+                    word_source = "browser_severity"
             except (ValueError, TypeError):
                 pass
 
@@ -417,7 +456,7 @@ def upload_chunk():
 
         dial_result = scorer.process_chunk(
             word_severity=word_severity,
-            energy=raw_energy,
+            energy=loud_energy,
             peak=raw_peak,
             yamnet_top_name=yamnet_label,
             model_danger_prob=(chunk_prob or 0.0),
@@ -474,6 +513,13 @@ def upload_chunk():
             "sound_name": sound_name,
             "transcript": transcript,
             "keywords": keywords,
+            # Verification fields: without these a caller cannot tell a quiet
+            # ride from a broken pipeline.
+            "energy": round(float(loud_energy), 6),
+            "energy_avg": round(float(raw_energy), 6),
+            "peak": round(float(raw_peak), 4),
+            "word_source": word_source,
+            "distress_hold_chunks": int(getattr(scorer, "distress_hold", 0)),
             "chunk_index": int(chunk_idx),
             "risk_level": risk_level,
             "chunk_risk": chunk_risk,
@@ -783,7 +829,7 @@ if __name__ == "__main__":
     print("=" * 56)
     print("  🛡️  AUDIO SAFETY AI — Native Web Server")
     print("=" * 56)
-    print(f"  Frontend :  http://localhost:5004")
+    print(f"  Frontend :  http://localhost:{int(os.environ.get('AUDIO_SAFETY_PORT', '5004'))}")
     print(f"  AI Core  :  YAMNet + Custom SVM (sfx_training)")
     print(f"  Custom   :  train_model/models/danger_classifier_latest.pkl")
     print(f"  Threshold:  {CONFIDENCE_THRESHOLD*100:.0f}% confidence")
@@ -798,4 +844,7 @@ if __name__ == "__main__":
     preload_thread = threading.Thread(target=preload_models, daemon=True)
     preload_thread.start()
 
-    app.run(host="0.0.0.0", port=5004, debug=False, threaded=True)
+    # Port is overridable so a second brain can be tested without fighting the
+    # live one for 5004 (a wedged listener otherwise silently answers for you).
+    _port = int(os.environ.get("AUDIO_SAFETY_PORT", "5004"))
+    app.run(host="0.0.0.0", port=_port, debug=False, threaded=True)

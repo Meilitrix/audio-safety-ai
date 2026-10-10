@@ -374,6 +374,7 @@ const transLog = $("transLog"), chunksLog = $("chunksLog");
 let recognition = null;
 let speechRecActive = false;
 let interimSpan = null;  // DOM element for live word-by-word text
+let pendingWords = "";   // words heard since the last chunk was uploaded
 
 // Distress keyword dictionary — severity-weighted, multilingual
 // Loaded from distress_keywords.json structure
@@ -533,6 +534,9 @@ function addSpeechTranscript(text) {
     }
   }
   const status = found.length > 0 ? (maxSev >= 3 ? "DANGER" : "SAFE") : "SAFE";
+  // Hand the raw words to the brain. It owns the dictionary and does the
+  // scoring, so this page's list only decorates the transcript.
+  pendingWords = pendingWords ? pendingWords + " . " + text : text;
   addTransEntry(t, status, text, found);
   // Clear interim
   if (interimSpan) interimSpan.textContent = "";
@@ -605,14 +609,12 @@ async function startMonitor() {
         let chunk = combined.slice(0, needed);
         if (combined.length > needed) monChunkBuf.push(combined.slice(needed));
 
-        // ── Amplify audio — browser mic signal is very quiet ──
-        let peak = 0;
-        for (let i = 0; i < chunk.length; i++) peak = Math.max(peak, Math.abs(chunk[i]));
-        if (peak > 0.001) {
-          const gain = Math.min(0.7 / peak, 30);
-          for (let i = 0; i < chunk.length; i++) chunk[i] *= gain;
-        }
-
+        // ── Send the mic signal as-is ──
+        // This used to rescale EVERY chunk to peak 0.70. That is worse than no
+        // gain at all: it forces a whisper and a scream to the same loudness,
+        // and 0.70 sits under the brain's 0.85 scream threshold, so a scream
+        // could never register from this page. Loudness is the thing being
+        // measured, so it must survive the upload.
         monChunkCount++;
         const idx = monChunkCount;
         monChunksEl.textContent = idx;
@@ -624,6 +626,11 @@ async function startMonitor() {
         fd.append("journey_id", journeyId || "monitor");
         fd.append("chunk_index", String(idx));
         fd.append("audio", blob, "c.wav");
+        // Attach what was said during this chunk, then reset the bucket
+        if (pendingWords) {
+          fd.append("transcript", pendingWords);
+          pendingWords = "";
+        }
         fetch(SERVER + "/upload_chunk", { method: "POST", body: fd })
           .then(r => r.json())
           .then(json => {
@@ -751,6 +758,18 @@ function handleResult(res) {
   const voiceSev = res.voice_severity || 0;
   const eventSev = res.event_severity || 0;
   const chunkScore = res.chunk_score || 0;
+
+  // Verification readout. The voice sensor works off absolute loudness, so
+  // show the loudness: without it a muted/blocked mic and a genuinely quiet
+  // ride look identical on screen.
+  if (typeof res.peak === "number") {
+    const held = res.distress_hold_chunks
+      ? `  holds ${res.distress_hold_chunks} chunks` : "";
+    addChunk(res.peak >= 0.85 ? "danger" : "idle",
+      `Chunk #${res.chunk_index}  peak ${res.peak.toFixed(2)}  `
+      + `energy ${(res.energy || 0).toFixed(3)}  |  voice ${voiceSev} `
+      + `event ${eventSev} words ${wordSev}  +${chunkScore.toFixed(1)}${held}`);
+  }
 
   // Surface when the journey-trained model contributes (proof your data is live)
   if (res.chunk_model_prob != null && res.chunk_model_prob >= 0.5) {
