@@ -4,8 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Audio Safety AI</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<!-- Fonts: deliberately NOT loaded from the internet.
+     An external stylesheet request blocks this page from painting until it
+     times out, so with no internet the dashboard looked completely dead.
+     The CSS below already falls back to system-ui and monospace, which every
+     Windows machine has. This app has to work with the internet switched off.
+     There must be no external font or script request anywhere in this file. -->
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{

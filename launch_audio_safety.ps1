@@ -59,13 +59,37 @@ function Open-Dashboard {
     Write-Host ""
 }
 
-# ── 1. Something already answering? ───────────────────────────────────────
+# ── 1. Is a brain already there? ────────────────────────────────────────
 if (Test-Brain) {
     Write-Host "  A brain is already answering on $Port - opening it." -ForegroundColor Green
-    Write-Host "  (if the dial never moves, that one is stale: close its"
-    Write-Host "   window and double-click this again)"
     if (-not $NoBrowser) { Open-Dashboard }
     return
+}
+
+# ── 1b. Something holds the port but has not answered YET ───────────────
+# This is the double-click-too-soon case, and it is the reason a second black
+# window used to appear and then do nothing: the first brain is still loading
+# its model (about half a minute), so it does not answer yet, and an impatient
+# launcher would start ANOTHER server onto the same port, which dies with
+# "Address already in use".  Wait for the one that is already coming up.
+$holding = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+if ($holding.Count -gt 0) {
+    Write-Host "  something already holds port $Port - waiting for it to wake up" -ForegroundColor Yellow
+    Write-Host "  (a brain that is still loading its model looks silent for ~30 s)" -ForegroundColor Yellow
+    Write-Host "  waiting " -NoNewline
+    for ($i = 0; $i -lt 45; $i++) {
+        Start-Sleep -Seconds 2
+        if (Test-Brain) {
+            Write-Host ""
+            Write-Host "  it is answering - opening it." -ForegroundColor Green
+            if (-not $NoBrowser) { Open-Dashboard }
+            return
+        }
+        Write-Host "." -NoNewline
+    }
+    Write-Host ""
+    Write-Host "  it holds the port but answered nothing in 90 s - that is the wedged" -ForegroundColor Yellow
+    Write-Host "  kind. Clearing it and starting a fresh one." -ForegroundColor Yellow
 }
 
 # ── 2. Port held by a process that does NOT answer = wedged. Clear it. ────
