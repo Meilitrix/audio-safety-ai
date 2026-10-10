@@ -299,7 +299,10 @@ def stop_session():
     else:
         # Monitor-only: delete chunks (no consent to save)
         for f in glob.glob(os.path.join(AUDIO_DIR, f"chunk_{jid}_*")):
-            os.remove(f)
+            try:
+                os.remove(f)
+            except OSError:
+                pass  # already gone - the rest of the cleanup still matters
 
     return jsonify({
         "ok": True,

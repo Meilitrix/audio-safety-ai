@@ -64,7 +64,11 @@ CONCERN_CLASSES  = {"Glass", "Explosion", "Fire", "Artillery fire"}
 #    has already classified a chunk as a scream/shout, that IS corroborated
 #    event evidence — the dial must honour it instead of falling back to
 #    raw energy alone (which zeroed short/quiet screams). ──
-VOCAL_DANGER_CLASSES = {"Scream", "Shriek", "Shout", "Yell"}
+# "Bellow" added after measuring the real scream clips: YAMNet's top-5 for
+# them is Sheep / Children playing / Bellow / Hiss / Speech.  It never emits
+# "Scream", so without this label the dial gets no event evidence and falls
+# back to the voice-only 1.5-per-chunk cap (~27s to CRITICAL).
+VOCAL_DANGER_CLASSES = {"Scream", "Shriek", "Shout", "Yell", "Bellow"}
 SAFE_CLASSES     = {   # YAMNet classes that are always safe
     "Music", "Speech", "Conversation", "Child speech",
     "Narration", "Babbling", "Children playing",
