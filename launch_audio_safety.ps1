@@ -61,13 +61,27 @@ if ($badPids.Count -gt 0) { Start-Sleep -Seconds 2 }
 $env:PYTHONIOENCODING = "utf-8"
 $env:AUDIO_SAFETY_PORT = "$Port"
 
-$py = (Get-Command python -ErrorAction SilentlyContinue).Source
+$py = $null
+# Resolved by absolute path first, because this machine's PATH has lost its
+# Windows system folders - a bare "python" can fail for reasons that have
+# nothing to do with the app.
+$candidates = @(
+    "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+    "C:\Users\user\AppData\Local\Programs\Python\Python312\python.exe"
+)
+try { $candidates += (Get-Command python -ErrorAction Stop).Source } catch { }
+try { $candidates += (Get-Command py -ErrorAction Stop).Source } catch { }
+foreach ($c in $candidates) {
+    if ($c -and (Test-Path $c)) { $py = $c; break }
+}
 if (-not $py) {
-    Write-Host "  ERROR: python is not on PATH - cannot start the brain." -ForegroundColor Red
-    Write-Host "  Tell me and we fix the PATH; nothing else about the app is broken."
-    pause
+    Write-Host "  ERROR: could not find Python. Looked in:" -ForegroundColor Red
+    $candidates | ForEach-Object { Write-Host "    $_" }
+    Write-Host "  Nothing about the app itself is broken - tell me and we fix this."
+    Read-Host "Press Enter to close"
     return
 }
+Write-Host "  python: $py"
 
 Start-Process -FilePath $py -ArgumentList "server.py" -WorkingDirectory $root -WindowStyle Normal
 Write-Host "  starting server.py ..." -NoNewline
@@ -89,7 +103,7 @@ if (-not $ok) {
     Write-Host "   - a Python error in red   -> the code is broken, tell me what it says"
     Write-Host "   - 'YAMNet ready' but no page -> port $Port is held by something else"
     Write-Host "   - a 'pkg_resources' warning is normal, ignore it"
-    pause
+    Read-Host "Press Enter to close"
     return
 }
 
