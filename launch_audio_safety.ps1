@@ -13,7 +13,10 @@ param(
 )
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$url  = "http://localhost:$Port"
+# 127.0.0.1, not "localhost": this server binds IPv4 only, and a browser that
+# tries the IPv6 name first can show an empty tab.  The address is printed in
+# large text below regardless, so a blocked browser can never strand you.
+$url  = "http://127.0.0.1:$Port"
 
 Write-Host ""
 Write-Host "  AUDIO SAFETY AI - starting" -ForegroundColor Cyan
@@ -32,12 +35,36 @@ function Test-Brain {
     }
 }
 
+function Open-Dashboard {
+    # Opening a browser is the one step that can fail quietly (no default
+    # browser set, association broken, window hidden behind others).  Try the
+    # normal way, then the shell's own "start" command, and always leave the
+    # address on screen so it can be typed by hand.
+    try {
+        Start-Process $url -ErrorAction Stop
+    } catch {
+        try {
+            & "$env:SystemRoot\System32\cmd.exe" /c start "" $url 2>$null
+        } catch { }
+    }
+    Write-Host ""
+    Write-Host "  ==============================" -ForegroundColor Green
+    Write-Host "   OPEN THIS IN YOUR BROWSER:    $url" -ForegroundColor Yellow
+    Write-Host "  ==============================" -ForegroundColor Green
+    Write-Host "   Nothing appeared? Open your browser yourself and type that"
+    Write-Host "   address. The brain is already running behind this window."
+    Write-Host "   The FIRST chunk takes about 25 s (the AI model loads), and"
+    Write-Host "   after that each one is fast - a still dial for half a minute"
+    Write-Host "   after pressing Monitor is normal, not a hang."
+    Write-Host ""
+}
+
 # ── 1. Something already answering? ───────────────────────────────────────
 if (Test-Brain) {
     Write-Host "  A brain is already answering on $Port - opening it." -ForegroundColor Green
     Write-Host "  (if the dial never moves, that one is stale: close its"
     Write-Host "   window and double-click this again)"
-    if (-not $NoBrowser) { Start-Process $url }
+    if (-not $NoBrowser) { Open-Dashboard }
     return
 }
 
@@ -103,14 +130,16 @@ if (-not $ok) {
     Write-Host "   - a Python error in red   -> the code is broken, tell me what it says"
     Write-Host "   - 'YAMNet ready' but no page -> port $Port is held by something else"
     Write-Host "   - a 'pkg_resources' warning is normal, ignore it"
+    Write-Host ""
+    Write-Host "   Meanwhile the address to try by hand is: $url" -ForegroundColor Yellow
     Read-Host "Press Enter to close"
     return
 }
 
 Write-Host ""
-Write-Host "  READY  ->  $url" -ForegroundColor Green
-Write-Host "  Monitor -> allow the microphone -> chunk #1 takes ~30 s (model loads),"
+Write-Host "  READY" -ForegroundColor Green
+Write-Host "  Monitor -> allow the microphone -> chunk #1 takes ~25 s (model loads),"
 Write-Host "  after that it is fast. Each chunk now prints its peak, energy and"
 Write-Host "  whether a distress word was matched."
 Write-Host ""
-if (-not $NoBrowser) { Start-Process $url }
+if (-not $NoBrowser) { Open-Dashboard }
