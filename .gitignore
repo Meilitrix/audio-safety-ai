@@ -36,6 +36,7 @@ _record_state.json
 ai_result.json
 eval_report.json
 chunk_model_report.json
+dial_behaviour_log.json
 *.wav
 !index.html
 
@@ -58,3 +59,4 @@ github_setup.bat
 *.log
 *.txt
 !requirements.txt
+!dial_behaviour_log.txt
