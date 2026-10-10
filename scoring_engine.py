@@ -56,9 +56,15 @@ EVENT_IMPACT_ENERGY   = 0.015   # energy for thud-as-impact
 EVENT_PEAK_IMPACT     = 0.65    # sharp transient threshold
 EVENT_THUMP_ENERGY    = 0.015   # "Thump, thud" only if above this
 
+# "Crash" and "Collapse" are NOT YAMNet class names.  The vocabulary offers
+# Slam, Thump-thud, Shatter, Explosion, Glass, Tire squeal instead.  Nothing
+# scores off this set; it is kept only as a note of what a true crash label
+# would need.
 CRASH_CLASSES    = {"Crash", "Collapse"}
 IMPACT_CLASSES   = {"Thump, thud"}
-CONCERN_CLASSES  = {"Glass", "Explosion", "Fire", "Artillery fire"}
+# "Fire" removed: not a YAMNet class name.  The real ones are "Fire alarm",
+# "Firecracker", "Artillery fire" - the last already listed.
+CONCERN_CLASSES  = {"Glass", "Explosion", "Artillery fire"}
 # ── Vocal distress labels that YAMNet itself emits (see yamnet_engine
 #    DANGER_INDICES + the pitch-detected reason string).  When the engine
 #    has already classified a chunk as a scream/shout, that IS corroborated
@@ -69,9 +75,13 @@ CONCERN_CLASSES  = {"Glass", "Explosion", "Fire", "Artillery fire"}
 # "Scream", so without this label the dial gets no event evidence and falls
 # back to the voice-only 1.5-per-chunk cap (~27s to CRITICAL).
 VOCAL_DANGER_CLASSES = {"Scream", "Shriek", "Shout", "Yell", "Bellow"}
-SAFE_CLASSES     = {   # YAMNet classes that are always safe
-    "Music", "Speech", "Conversation", "Child speech",
-    "Narration", "Babbling", "Children playing",
+# NOTE: nothing reads this set - it survives only as documentation.  The two
+# spellings below were corrected to YAMNet's real class names ("Child speech"
+# and "Narration" do not exist) but the set is deliberately NOT wired into the
+# scorer, because that would change detection the day before a demo.
+SAFE_CLASSES     = {   # sounds that should never raise the dial
+    "Music", "Speech", "Conversation", "Child speech, kid speaking",
+    "Narration, monologue", "Babbling", "Children playing",
     "Vehicle", "Car", "Engine", "Idling",
     "Silence", "Noise", "Environmental noise",
 }
@@ -149,16 +159,16 @@ class DangerScorer:
         from the scream, NOT a physical impact. Don't double-count.
         Returns dict: {severity: 0-3, type: str, detail: str}
         """
-        # Crash classes always count (distinct from vocal events)
-        if yamnet_top_name in CRASH_CLASSES:
-            return {"severity": 2, "type": "crash", "detail": yamnet_top_name}
+        # Removed: an `if yamnet_top_name in CRASH_CLASSES` branch.  Neither name is
+        # a YAMNet class, so it could never fire.  A real collision is caught below
+        # by IMPACT ("Thump, thud") plus its energy and peak - the path that is
+        # actually exercised, and actually measured.
 
         # YAMNet already judged this chunk as vocal distress (Scream/Shriek/
         # Shout/Yell or a pitch-detected scream). Treat it as a real event so
         # short or quiet screams can accumulate on the dial. Checked BEFORE the
         # voice-dominated zeroing below, which would otherwise discard it.
-        if yamnet_top_name in VOCAL_DANGER_CLASSES or \
-                yamnet_top_name.startswith("Screaming"):
+        if yamnet_top_name in VOCAL_DANGER_CLASSES:
             return {"severity": 2, "type": "vocal_danger",
                     "detail": yamnet_top_name}
 
@@ -196,7 +206,7 @@ class DangerScorer:
         #    were constantly scored as severity-2 impacts.  Because an event
         #    is a "strong" signal, the dial then accumulated on every chunk and
         #    NEVER decayed -- the exact "maxes out and stays there" bug.
-        #    Real physical danger is already covered by CRASH_CLASSES,
+        #    Real physical danger is already covered by
         #    CONCERN_CLASSES, IMPACT ("Thump, thud") and VOCAL_DANGER above.
         #    Loudness alone is no longer treated as evidence of danger.
         return {"severity": 0, "type": "none", "detail": "normal"}
