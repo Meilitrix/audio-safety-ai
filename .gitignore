@@ -65,6 +65,8 @@ github_setup.bat
 audit_*.png
 verify_*.png
 step*_*.png
+test_*.png
+diag_*.png
 
 # ── Third-party sample clips ──
 # sfx_training/ holds downloaded Freesound recordings used to train the classifier.
