@@ -63,3 +63,20 @@ github_setup.bat
 
 # browser audit screenshots - local working notes, not part of the app
 audit_*.png
+verify_*.png
+step*_*.png
+
+# ── Third-party sample clips ──
+# sfx_training/ holds downloaded Freesound recordings used to train the classifier.
+# They are licensed to their original authors (attribution required) and are NOT
+# ours to publish, so they stay on the development machine only. The training and
+# evaluation scripts read them by path; the running app does not need them.
+sfx_training/
+
+# ── Scratch / one-off working files (never part of the shipped app) ──
+/_*.ps1
+/_*.js
+/_*.py
+/_readme_abhi_ai.md
+/test_*.png
+route_safety_design.md

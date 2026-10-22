@@ -189,18 +189,37 @@ Everything else (speech, traffic, music, engine, horns) → SAFE.
 DANGER needs ≥ 50 % YAMNet confidence (`DANGER_THRESHOLD` in `yamnet_engine.py`).
 
 ### Layer 1b: Custom Danger Classifier (optional, `train_model/`)
-A scikit-learn model — cross-validated across SVM (RBF), SVM (linear), Random
-Forest and KNN, best scorer wins — trained on `sfx_training/`: car sounds
-labelled SAFE; danger, scream and slap sounds labelled DANGER.  Features are
-16 kHz MFCC + energy + pitch + spectral (`train_model/audio_features.py`).
-It runs on every chunk and, if it reports DANGER above 70 % confidence where
-YAMNet said SAFE, it **overrides** the YAMNet verdict (`server.py`,
-`_get_custom_predictor`).  Without the trained `.pkl` this layer is skipped
-automatically.
+There are **two** scikit-learn models here and they do different jobs — this trips
+people up, so read carefully:
 
-⚠️ The current corpus is tiny (14 decodable clips, 4 SAFE / 10 DANGER), so the
-reported cross-validation accuracy is indicative only, not a reliability claim.
-One `.m4a` clip is skipped because libsndfile cannot decode it.
+| File | Trained on | Loaded by | What it actually drives |
+|---|---|---|---|
+| `danger_classifier_chunks.pkl` | 3-second chunks from human-labelled ride audio | `_get_chunk_model` / `_chunk_model_prob` (`server.py`) | **The live Danger Dial.** On by default (`_chunk_model_enabled = True`, toggled via `POST /set_model`); its per-chunk danger probability feeds the score on every chunk |
+| `danger_classifier_latest.pkl` | whole-file `sfx_training/` clips | `_get_custom_predictor` (`server.py`) | Older whole-file SVM. Acts as an override: if it reports DANGER above 70 % where YAMNet said SAFE |
+
+Both are cross-validated across SVM (RBF/linear), Random Forest and KNN; features
+are 16 kHz MFCC + energy + pitch + spectral (`train_model/audio_features.py`). If
+neither `.pkl` is present the layer is skipped and the app runs YAMNet-only — a
+degrade, not an error. The startup banner names both files and marks the chunk
+model as the one that feeds the dial.
+
+⚠️ The whole-file corpus is tiny (14 decodable clips, 4 SAFE / 10 DANGER), so its
+cross-validation accuracy is indicative only, not a reliability claim. One `.m4a`
+clip is skipped because libsndfile cannot decode it.
+
+#### Measured performance of the chunk model (the one behind the dial)
+From `chunk_model_report.json`, evaluated chunk-by-chunk against human labels:
+
+| Metric | Value | Meaning |
+|---|---|---|
+| Chunk accuracy | 62.2% | Right on about 3 in 5 chunks |
+| Danger recall | **9.2%** | Of 109 danger chunks it caught 10 and **missed 99** |
+| Danger precision | 100% | Everything it did flag as danger was real |
+| Safe false-alarm rate | 0% | Called nothing dangerous on safe audio (153/153 correct) |
+
+Honest reading: the chunk model is currently tuned to **avoid false alarms at the
+cost of missing most danger**. That is a deliberate prototype trade-off, not a
+finished safety system, and it should be presented that way.
 
 ### Layer 2: Energy Analysis
 - **Sudden silence** — detects when audio energy drops sharply (possible vehicle stop)

@@ -22,9 +22,17 @@ $root    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $url     = "http://127.0.0.1:$Port"
 $brainUrl = "http://127.0.0.1:$BrainPort"
 
-# Where the ride app lives.  It is outside this folder, so if it is ever moved,
-# this one line is the only thing to change.
-$appDir = "C:\Users\user\Documents\Qoder\2026-09-14\chat-1\saferide-ai"
+# Where the ride app lives.  Resolved from a list of candidates so the same
+# launcher works on any laptop after a clone, not just this one.  The first
+# candidate that actually contains package.json wins.  Add or reorder entries
+# here if the project layout changes - nothing else in this file needs to know.
+$appCandidates = @(
+    (Join-Path $root "..\saferide-ai"),                         # combined repo: brain folder's sibling
+    (Join-Path $root "saferide-ai"),                            # combined repo: ride app nested here
+    "C:\Users\user\Documents\Qoder\2026-09-14\chat-1\saferide-ai"  # this machine's development copy
+)
+$appDir = $appCandidates | Where-Object { Test-Path (Join-Path $_ "package.json") } | Select-Object -First 1
+if (-not $appDir) { $appDir = $appCandidates[0] }   # sensible thing to print in the error below
 
 Write-Host ""
 Write-Host "  SAFERIDE - starting" -ForegroundColor Cyan
@@ -60,10 +68,11 @@ function Open-Page($target, $what) {
 }
 
 if (-not (Test-Path "$appDir\package.json")) {
-    Write-Host "  ERROR: SaferRide is not where this launcher expects:" -ForegroundColor Red
-    Write-Host "    $appDir\package.json  -> missing"
-    Write-Host "  The app is not broken, it moved. Tell me the new folder"
-    Write-Host "  and I change one line here."
+    Write-Host "  ERROR: no SaferRide found in any expected folder:" -ForegroundColor Red
+    foreach ($c in $appCandidates) { Write-Host "    tried: $c" }
+    Write-Host "  The app is not broken, it just is not cloned next to this"
+    Write-Host "  launcher. Put the saferide-ai folder beside this one (as a"
+    Write-Host "  sibling), or add its path to \$appCandidates at the top."
     Read-Host "Press Enter to close"
     return
 }
