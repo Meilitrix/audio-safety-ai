@@ -172,6 +172,8 @@ export const AVAILABLE_PAKISTANI_DRIVERS: DriverProfile[] = [
     carColor: "Pearl White",
     licensePlate: "LEA-23-4910",
     photoUrl: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
+    // Her card shows the CAR, not her face (white, matching "Alto VXR (White)").
+    carPhotoUrl: "/cars/alto_white.jpg",
     phone: "+92 301 4589210",
     audioSafetyCertified: true,
     activeBadge: "🌸 Top Rated Female Driver • Women Safety Shield Certified",
@@ -244,6 +246,9 @@ export const AVAILABLE_PAKISTANI_DRIVERS: DriverProfile[] = [
     carColor: "Graphite Grey",
     licensePlate: "LED-23-1144",
     photoUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80",
+    // Rider's call: Bilal's card shows his CAR (graphite, matching "Cultus VXL
+    // (Graphite)") instead of his face.
+    carPhotoUrl: "/cars/cultus_graphite.jpg",
     phone: "+92 345 6109283",
     audioSafetyCertified: true,
     activeBadge: "City Commute Master • Background Clearance Verified",

@@ -27,6 +27,9 @@ interface LiveMapProps {
   routes: RouteOption[];
   selectedRouteId: string | null;
   deviationPosition: { lat: number; lng: number } | null;
+  // Trip screen passes this to shrink the map so the SOS control fits on one
+  // screen instead of pushing the rider into a scroll.
+  compact?: boolean;
 }
 
 // Free tile sources - no API key, no watermark:
@@ -51,6 +54,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   routes,
   selectedRouteId,
   deviationPosition,
+  compact,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -277,20 +281,21 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     if (rideStatus === "IN_TRIP" || rideStatus === "DRIVER_ASSIGNED") {
       const isFem = selectedDriver?.isFemaleDriver;
       const isCritical = threatLevel === "CRITICAL_SOS";
-      const carColor = isCritical ? "#ef4444" : isFem ? "#e11d48" : "#0284c7";
+      // Ring colour: red only in real danger, pink for the Khwateen fleet, brand
+      // blue otherwise. The marker itself is a white avatar showing the driver's
+      // initial - not the old solid colour "blob" the rider disliked.
+      const ring = isCritical ? "#ef4444" : isFem ? "#e11d48" : "#0284c7";
+      const initial = (String(selectedDriver?.name || "?").trim().charAt(0) || "•").toUpperCase();
 
       const carHtml = `
-        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:52px;height:52px;">
-          <div style="position:absolute;width:${isCritical ? "46" : "40"}px;height:${isCritical ? "46" : "40"}px;border-radius:50%;background:${isCritical ? "rgba(239,68,68,0.4)" : "rgba(6,182,212,0.35)"};animation:${isCritical ? "ping" : "pulse"} 1.5s infinite;"></div>
-          <div style="transform:rotate(${currentCarPos.angle}deg);width:38px;height:38px;border-radius:50%;background:${carColor};border:3px solid white;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.6);z-index:10;">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="1.5">
-              <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/>
-              <circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>
-            </svg>
+        <div style="position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;">
+          ${isCritical ? `<div style="position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(239,68,68,0.4);animation:ping 1.5s infinite;"></div>` : ""}
+          <div style="width:36px;height:36px;border-radius:50%;background:#fff;border:3px solid ${ring};display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(0,0,0,0.35);z-index:10;">
+            <span style="font:800 17px/1 system-ui,-apple-system,Segoe UI,sans-serif;color:${ring};">${initial}</span>
           </div>
         </div>`;
 
-      const carIcon = L.divIcon({ className: "active-car-icon", html: carHtml, iconSize: [52, 52], iconAnchor: [26, 26] });
+      const carIcon = L.divIcon({ className: "active-car-icon", html: carHtml, iconSize: [44, 44], iconAnchor: [22, 22] });
 
       if (!carMarkerRef.current) {
         carMarkerRef.current = L.marker([currentCarPos.lat, currentCarPos.lng], { icon: carIcon, zIndexOffset: 1000 }).addTo(map);
@@ -346,7 +351,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   const avgKmH = rideStatus === "IN_TRIP" ? Math.round((routeDist / durMin) * 60) : 0;
 
   return (
-    <div className="relative w-full h-[300px] sm:h-[350px] lg:h-[400px] rounded-2xl overflow-hidden border border-slate-200 shadow-md select-none bg-white">
+    <div className="relative w-full h-[300px] sm:h-[350px] lg:h-[400px] rounded-2xl overflow-hidden border border-slate-200 shadow-md select-none bg-white" style={compact ? { height: 196 } : undefined}>
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Top HUD - light glass pills (see .map-hud in index.css); the dark

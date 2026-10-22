@@ -47,6 +47,9 @@ export interface DriverProfile {
   carColor: string;
   licensePlate: string;
   photoUrl: string;
+  // Optional: a photo of the driver's CAR (used instead of a face for the
+  // Khawateen driver who prefers her vehicle shown rather than her picture).
+  carPhotoUrl?: string;
   phone: string;
   audioSafetyCertified: boolean;
   activeBadge: string;

@@ -95,6 +95,7 @@ html, body {
   cursor: pointer;
   box-shadow: var(--shadow);
 }
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
 
 /* ── Cards / steps / headers ─────────────────────────────── */
 .card {
@@ -109,6 +110,13 @@ html, body {
   padding: 16px;
 }
 .card.tight { padding: 12px; }
+/* Locations picker: show ~5 rows, the rest scroll inside the card. flex:0 0 auto
+   stops the flex page-scroll from collapsing the card to a useless 1-row strip.
+   Scrollbars are hidden (rider's call) - plain wheel/touch scroll still works. */
+.card.tight.loc-list { flex: 0 0 auto; max-height: 288px; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+.card.tight.loc-list::-webkit-scrollbar { width: 0; height: 0; display: none; }
+.app-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.app-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
 
 .steps { display: flex; gap: 6px; align-items: center; padding: 2px; }
 .steps i {
@@ -372,6 +380,8 @@ html, body {
 .ai-evidence[open] summary::before { content: "▾"; }
 .transcript { background: #f6f8fc; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--ink-2); min-height: 44px; line-height: 1.4; }
 .heard { font-size: 13px; font-weight: 700; color: var(--ink); }
+.heard-read { color: var(--ink); }
+.heard-sub { font-weight: 600; color: var(--ink-3); font-size: 12px; }
 .dash-frame { width: 100%; height: 64vh; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
 
 /* Pickup/dropoff edit target highlight - stronger than the card wash so the
@@ -395,16 +405,22 @@ html, body {
 .drv-radar { width: 18px; height: 18px; color: var(--brand); animation: rot 3.2s linear infinite; }
 .drv-count { font-size: 12px; font-weight: 700; color: var(--ink-3); white-space: nowrap; }
 .drv-list { display: flex; flex-direction: column; gap: 8px; }
-.drv-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 10px 12px; box-shadow: var(--shadow); }
+.drv-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px 12px; box-shadow: var(--shadow); }
 .drv-row.fem { border-color: #f6d5e4; background: linear-gradient(180deg, #fff7fb 0%, var(--surface) 65%); }
-.drv-tile { flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.drv-tile { position: relative; overflow: hidden; flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 .drv-tile svg { width: 20px; height: 20px; }
+.drv-av { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 12px; }
 .drv-tile.mal { background: var(--brand-soft); color: var(--brand); border: 1.5px solid #b9d0ff; }
 .drv-tile.fem { background: #fdeef5; color: #c0246a; border: 1.5px solid #f4c3da; }
 .drv-id { flex: 1; min-width: 0; }
 .drv-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .drv-nm { font-size: 13.5px; font-weight: 800; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drv-star { font-size: 11px; font-weight: 800; color: #b45309; background: var(--warn-soft); border-radius: 6px; padding: 1px 5px; white-space: nowrap; }
+.drv-rate { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
+.drv-stars { display: inline-flex; gap: 1px; line-height: 1; }
+.drv-stars .st { font-size: 11px; color: #d9c7a6; }
+.drv-stars .st.on { color: #f59e0b; }
+.drv-star-num { font-size: 11.5px; font-weight: 800; color: var(--ink-2); }
 .drv-badge { font-size: 9.5px; font-weight: 900; letter-spacing: .4px; text-transform: uppercase; color: #c0246a; background: #fdeef5; border: 1px solid #f4c3da; border-radius: 999px; padding: 1px 6px; white-space: nowrap; }
 .drv-car { margin: 2px 0 0; font-size: 11.5px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drv-plate { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--ink-2); }

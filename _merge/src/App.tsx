@@ -6,7 +6,7 @@ import {
 import { POPULAR_LOCATIONS, AVAILABLE_PAKISTANI_DRIVERS } from "./data/rideData";
 import { useAudioSafety } from "./hooks/useAudioSafety";
 import { LiveMap } from "./components/LiveMap";
-import { Car, Radar } from "lucide-react";
+import { Car, Radar, Users, RotateCcw } from "lucide-react";
 import { DangerGauge } from "./components/DangerGauge";
 import { BottomSheet, Wave } from "./components/Sheet";
 import { PaySheet, FeedbackSheet, DebriefSheet } from "./components/RideEndSheets";
@@ -71,6 +71,10 @@ export default function App() {
   const autoSosArmedRef = useRef(false);
   const autoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Live SOS tracking: while an incident is open we push the rider's real GPS to
+  // /api/live/<id> every few seconds so the emailed /live page keeps moving.
+  const liveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentPosRef = useRef<LngLat>({ lat: 0, lng: 0 });
 
   // ── Ride end state ───────────────────────────────────────────────
   const [endStep, setEndStep] = useState<"pay" | "feedback" | "debrief">("pay");
@@ -199,6 +203,7 @@ export default function App() {
 
   const routePos = activeRoute ? interpolateRoute(activeRoute.geometry, tripProgress) : { lat: pickup.lat, lng: pickup.lng };
   const currentPos: LngLat = livePos ?? routePos;
+  currentPosRef.current = currentPos;
 
   // ── Route deviation: real /api/check-deviation against live position ─
   useEffect(() => {
@@ -253,6 +258,26 @@ export default function App() {
     if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
   };
 
+  // Push the rider's real GPS to the server every 5s while an SOS is open, so
+  // the /live page the contacts receive keeps moving. Stops the moment the app
+  // does (ride ended / reset / phone closed) - the page then shows "last seen".
+  const startLiveFeed = (id: string) => {
+    if (liveTimerRef.current) clearInterval(liveTimerRef.current);
+    const ping = () => {
+      const p = currentPosRef.current;
+      fetch(`/api/live/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: p.lat, lng: p.lng, riderName }),
+      }).catch(() => {});
+    };
+    ping();
+    liveTimerRef.current = setInterval(ping, 5000);
+  };
+  const stopLiveFeed = () => {
+    if (liveTimerRef.current) { clearInterval(liveTimerRef.current); liveTimerRef.current = null; }
+  };
+
   // "I am safe" DE-ESCALATES - it never wipes the escalation history.
   const handleImSafe = () => {
     stopCountdown();
@@ -292,6 +317,7 @@ export default function App() {
       actionsTaken: [],
     };
     setIncident(report);
+    startLiveFeed(report.incidentId);
     try {
       const res = await fetch("/api/emergency/dispatch", {
         method: "POST",
@@ -331,6 +357,7 @@ export default function App() {
   const arriveRide = () => {
     audio.stopMonitoring();
     stopCountdown();
+    stopLiveFeed();
     if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; }
     setDeviationOn(false);
     setStage("TRIP_COMPLETED");
@@ -357,6 +384,7 @@ export default function App() {
     setSelectedDriver(null); setTripProgress(0);
     setThreatLevel("NORMAL"); setDistressScore(0);
     setIncident(null); setDispatchResult(null); setSosSheet("closed");
+    stopLiveFeed();
     autoSosArmedRef.current = false; setLivePos(null); setGpsLabel("acquiring GPS…");
     setEndStep("pay");
     if (skipped) {
@@ -499,11 +527,18 @@ export default function App() {
         open={sosSheet === "results"}
         result={dispatchResult}
         contacts={contacts}
-        onSafe={() => { setSosSheet("closed"); setThreatLevel("ELEVATED"); }}
+        onClose={() => setSosSheet("closed")}
       />
       <PermissionSheet
         open={permOpen}
-        onAllow={() => { setPermOpen(false); setStage("IN_TRIP"); audio.startMonitoring(); }}
+        onAllow={() => {
+          setPermOpen(false);
+          setStage("IN_TRIP");
+          audio.startMonitoring();
+          // Ask for location up-front (not silently mid-ride): the trip's live
+          // GPS + Share/SOS depend on it, so the rider consents knowingly.
+          if ("geolocation" in navigator) navigator.geolocation.getCurrentPosition(() => {}, () => {});
+        }}
         onSkip={() => { setPermOpen(false); setStage("IN_TRIP"); }}
       />
       <DashboardSheet open={isDashOpen} onClose={() => setIsDashOpen(false)} />
@@ -545,11 +580,11 @@ function TopBar({ threat, monitoring, onContacts, onReset }: any) {
             ("Where to, Ayesha?"), so this row only duplicated it. */}
         <div className="name">Abhi AI</div>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div className="topbar-actions">
         {chip}
-        <button className="icon-btn" onClick={onContacts} aria-label="Emergency contacts">👤</button>
+        <button className="icon-btn" onClick={onContacts} aria-label="Emergency contacts" title="Emergency contacts"><Users style={{ width: 18, height: 18 }} /></button>
         {onReset && (
-          <button className="icon-btn" onClick={onReset} aria-label="New ride">↺</button>
+          <button className="icon-btn" onClick={onReset} aria-label="New ride" title="Start a new ride"><RotateCcw style={{ width: 18, height: 18 }} /></button>
         )}
       </div>
     </div>
@@ -675,7 +710,7 @@ function Destination({ riderName, pickup, dropoff, setPickup, setDropoff, onGo }
       <div className="field">
         <input className="input" placeholder={editTarget === "pickup" ? "Search pickup in Islamabad" : "Search destination in Islamabad"} value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
-      <div className="card tight">
+      <div className="card tight loc-list">
         {list.map((l) => (
           <div
             className="pick-row"
@@ -779,19 +814,30 @@ function DriverChoice({ drivers, onPick, onBack }: any) {
       </div>
       <div className="seg-row">
         <button className={"seg" + (filter === "all" ? " on" : "")} onClick={() => setFilter("all")}>All ({drivers.length})</button>
-        <button className={"seg fem" + (filter === "female" ? " on" : "")} onClick={() => setFilter("female")}>Khwateen</button>
+        <button className={"seg fem" + (filter === "female" ? " on" : "")} onClick={() => setFilter("female")}>Khawateen</button>
       </div>
       <div className="drv-list">
-        {shown.map((d: DriverProfile) => (
+        {shown.map((d: DriverProfile) => {
+          // Avatars, per the rider's brief: a driver with a carPhotoUrl shows
+          // their CAR (Fatima, Bilal); other men show a face photo; the rest of
+          // the Khawateen fleet keeps the neutral car icon. If an image 404s it
+          // removes itself so the icon underneath always shows - card never breaks.
+          const avatarSrc = d.carPhotoUrl || (!d.isFemaleDriver ? d.photoUrl : undefined);
+          const filled = Math.round(d.rating);
+          return (
           <div className={"drv-row" + (d.isFemaleDriver ? " fem" : "")} key={d.id}>
             <div className={"drv-tile " + (d.isFemaleDriver ? "fem" : "mal")} title={d.carModel}>
               <Car />
+              {avatarSrc && <img className="drv-av" src={avatarSrc} alt="" loading="lazy" onError={(e) => e.currentTarget.remove()} />}
             </div>
             <div className="drv-id">
               <div className="drv-name">
                 <span className="drv-nm">{d.name}</span>
-                <span className="drv-star">★ {d.rating}</span>
-                {d.isFemaleDriver && <span className="drv-badge">Khwateen</span>}
+                {d.isFemaleDriver && <span className="drv-badge">Khawateen</span>}
+              </div>
+              <div className="drv-rate">
+                <span className="drv-stars" aria-hidden>{[0, 1, 2, 3, 4].map((i) => (<span key={i} className={i < filled ? "st on" : "st"}>★</span>))}</span>
+                <span className="drv-star-num">{d.rating}</span>
               </div>
               <p className="drv-car">{d.carModel} · <span className="drv-plate">{d.licensePlate}</span></p>
             </div>
@@ -801,7 +847,8 @@ function DriverChoice({ drivers, onPick, onBack }: any) {
             </div>
             <button className="drv-accept" onClick={() => onPick(d)}>Accept</button>
           </div>
-        ))}
+          );
+        })}
         {shown.length === 0 && (
           <div className="card center-screen"><p className="sub">No drivers in this fleet right now - try All drivers.</p></div>
         )}
@@ -850,7 +897,7 @@ function Arrival({ driver, route, pickup, dropoff, onBoard, onBack }: any) {
         />
         <span className="cap">The car moves along the route toward your pickup.</span>
       </div>
-      <div className="banner info"><span className="grow">Abhi AI monitoring starts the moment you board: dial, route check, one-touch SOS.</span></div>
+      <div className="banner info" style={{ justifyContent: "center", textAlign: "center" }}><span>Safety AI monitoring starts when you board.<br />One-touch SOS is on the trip screen.</span></div>
       <div className="cta">
         <div className="btn-row">
           <button className="btn ghost" onClick={onBack}>Cancel</button>
@@ -896,6 +943,7 @@ function Trip({ driver, route, pickup, dropoff, progress, tripMinutes, audio, th
           routes={route ? [route] : []}
           selectedRouteId={route?.id ?? null}
           deviationPosition={null}
+          compact
         />
         <span className="cap">{gpsLabel}</span>
       </div>
@@ -934,7 +982,7 @@ function Trip({ driver, route, pickup, dropoff, progress, tripMinutes, audio, th
               if (navigator.share) navigator.share({ title: "My location - Abhi AI", url: link }).catch(() => {});
               else navigator.clipboard?.writeText(link);
             }}>Share my location</button>
-            <button className="btn primary" onClick={onArrive}>Arrived</button>
+            <button className="btn primary" onClick={onArrive}>End ride (demo)</button>
           </div>
         </div>
         <details className="ai-evidence">
@@ -948,8 +996,20 @@ function Trip({ driver, route, pickup, dropoff, progress, tripMinutes, audio, th
           </div>
           {audio.lastResult && (
             <div className="heard">
-              Heard: {audio.lastResult.sound_name} ({audio.lastResult.confidence > 1 ? Math.round(audio.lastResult.confidence) : Math.round(audio.lastResult.confidence * 100)}%
-              {audio.lastResult.custom_label ? ` · AI class: ${audio.lastResult.custom_label}` : ""})
+              {/* Plain language, not raw model jargon. custom_label is our binary
+                  SAFE / DANGER classifier; sound_name is the closest YAMNet
+                  AudioSet class (can read oddly, e.g. "Arrow"), so it's shown as
+                  a small transparency note, never as the headline. */}
+              {(() => {
+                const lab = String(audio.lastResult.custom_label || "").toUpperCase();
+                const read = lab === "DANGER" ? "Possible distress - keep an eye out"
+                  : lab === "SAFE" ? "Nothing concerning so far"
+                  : "Analysing the cabin…";
+                return <span className="heard-read">{read}</span>;
+              })()}
+              {audio.lastResult.sound_name && (
+                <span className="heard-sub"> · closest sound match: {audio.lastResult.sound_name}</span>
+              )}
             </div>
           )}
           {audio.lastResult?.keywords?.length > 0 && (
@@ -1027,12 +1087,15 @@ function SosPromptSheet({ open, reason, countdown, onSafe, onNow }: any) {
   );
 }
 
-function SosResultsSheet({ open, result, contacts, onSafe }: any) {
+function SosResultsSheet({ open, result, contacts, onClose }: any) {
   return (
     <BottomSheet open={open}>
       <p className="sheet-title">SOS sent</p>
+      {result?.liveLink && (
+        <div className="banner info"><span className="grow">Live tracking: </span><a href={result.liveLink} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>open live map</a></div>
+      )}
       {result?.mapsLink && (
-        <div className="banner info"><span className="grow">Live location: </span><a href={result.mapsLink} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>open map</a></div>
+        <div className="banner info"><span className="grow">Alert point (snapshot): </span><a href={result.mapsLink} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>open in Google Maps</a></div>
       )}
       {(result?.results || []).map((r: any, i: number) => (
         <div key={i} className={"banner " + (r.ok ? "ok" : "bad")}>
@@ -1049,7 +1112,10 @@ function SosResultsSheet({ open, result, contacts, onSafe }: any) {
         <a className="btn danger" href="tel:15">Police 15</a>
         <a className="btn" href="tel:1122">Rescue 1122</a>
       </div>
-      <button className="btn ghost" onClick={onSafe}>I'm safe now - stand down</button>
+      {/* Deliberately NO post-dispatch "stand down" button: once contacts are
+          alerted, a snatched phone must not be able to silently cancel it.
+          "Close" only hides this confirmation - monitoring and the alert stay live. */}
+      <button className="btn ghost" onClick={onClose}>Close</button>
     </BottomSheet>
   );
 }
@@ -1109,10 +1175,14 @@ function PermissionSheet({ open, onAllow, onSkip }: any) {
       <p className="sub">
         From the moment you board, Abhi AI listens for danger sounds and words of
         distress - screams, “bachao”, “gaadi roko”. It reacts in the cabin and it
-        never records or uploads your conversation. Your browser will now ask for
-        mic access: choose Allow.
+        never records or uploads your conversation.
       </p>
-      <button className="btn primary" onClick={onAllow}>Allow mic - start watching</button>
+      <p className="sub">
+        Your browser will ask for two permissions: <b>Mic</b> (to hear for distress)
+        and <b>Location</b> (so “Share my location” and SOS can send where you
+        actually are). Choose Allow on both.
+      </p>
+      <button className="btn primary" onClick={onAllow}>Allow mic &amp; location - start watching</button>
       <button className="btn ghost" onClick={onSkip}>Ride without monitoring</button>
     </BottomSheet>
   );

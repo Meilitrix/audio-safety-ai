@@ -315,6 +315,7 @@ async function sendBrevoEmail(opts: {
   driverName?: string;
   vehiclePlate?: string;
   mapLink: string;
+  liveLink?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const login = process.env.BREVO_SMTP_LOGIN;
   const key = process.env.BREVO_SMTP_KEY;
@@ -334,7 +335,12 @@ async function sendBrevoEmail(opts: {
     (opts.vehiclePlate ? '<tr><td style="padding:6px 0;color:#667085">Vehicle</td><td style="padding:6px 0;text-align:right">' + opts.vehiclePlate + '</td></tr>' : '') +
     '<tr><td style="padding:6px 0;color:#667085">When</td><td style="padding:6px 0;text-align:right">' + when + '</td></tr>' +
     '</table>' +
-    '<p style="margin:18px 0 6px"><a href="' + opts.mapLink + '" style="background:#0b5fff;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">View live location</a></p>' +
+    '<p style="margin:18px 0 6px">' +
+    (opts.liveLink
+      ? '<a href="' + opts.liveLink + '" style="background:#0b5fff;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">Track live location</a>'
+      : '<a href="' + opts.mapLink + '" style="background:#0b5fff;color:#fff;text-decoration:none;padding:12px 18px;border-radius:8px;display:inline-block">View location</a>') +
+    '</p>' +
+    (opts.liveLink ? '<p style="margin:2px 0 0;font-size:12px"><a href="' + opts.mapLink + '" style="color:#667085">or open the alert point in Google Maps</a></p>' : '') +
     '<p style="color:#667085;font-size:12px;margin-top:16px">If you recognize this ride, contact the rider now and, if needed, call Police 15 or Rescue 1122.</p>' +
     '</div></div>';
   try {
@@ -348,7 +354,7 @@ async function sendBrevoEmail(opts: {
       from,
       to: email,
       subject: `Abhi AI SOS - ${opts.riderName} may be in danger`,
-      text: `ABHI AI SOS: ${opts.riderName} may be in danger. Reason: ${opts.reason}. Live location: ${opts.mapLink}`,
+      text: `ABHI AI SOS: ${opts.riderName} may be in danger. Reason: ${opts.reason}. Live location: ${opts.liveLink || opts.mapLink} (snapshot: ${opts.mapLink})`,
       html,
     });
     return { ok: true };
@@ -365,6 +371,63 @@ app.get("/api/dispatch-status", (req, res) => {
     brevoEmail: brevoConfigured(),
     mode: brevoConfigured() ? "live" : "mock",
   });
+});
+
+// ── Live location tracking (SOS) ───────────────────────────────────────────
+// While an SOS is active the rider's app POSTs its real GPS here every few
+// seconds; the email link opens /live/<id>, which polls back and repaints a map.
+// In-memory on purpose for a prototype: positions vanish on restart, and <id>
+// is the unguessable incident token (not a phone number). If the phone stops
+// reporting, the page shows how long ago it was last seen - which is itself a
+// safety signal (the car stopped moving).
+const livePositions: Record<string, { lat: number; lng: number; ts: number; riderName?: string }> = {};
+
+app.post("/api/live/:id", (req, res) => {
+  const { lat, lng, riderName } = req.body || {};
+  const la = Number(lat), ln = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(ln)) {
+    return res.status(400).json({ ok: false, error: "bad coords" });
+  }
+  livePositions[req.params.id] = { lat: la, lng: ln, ts: Date.now(), riderName };
+  res.json({ ok: true });
+});
+
+app.get("/api/live/:id", (req, res) => {
+  const p = livePositions[req.params.id];
+  if (!p) return res.status(404).json({ ok: false, error: "no live position for this id" });
+  res.json({ ok: true, id: req.params.id, ...p, ageSeconds: Math.round((Date.now() - p.ts) / 1000) });
+});
+
+app.get("/live/:id", (req, res) => {
+  const idRaw = String(req.params.id || "");
+  const safe = idRaw.replace(/[^\w.-]/g, "");
+  const page = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Abhi AI - Live location</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>body{margin:0;font:15px/1.4 system-ui,Arial;color:#0f172a;background:#f1f5f9}header{padding:12px 16px;background:#d92d20;color:#fff}h1{margin:0;font-size:16px}#bar{padding:10px 16px;background:#fff;border-bottom:1px solid #e2e8f0;font-weight:700}#map{height:60vh}#foot{padding:12px 16px;font-size:13px;color:#475569}a{color:#0b5fff}</style>
+</head><body>
+<header><h1>Abhi AI - live ride location</h1></header>
+<div id="bar">Waiting for the rider's device…</div>
+<div id="map"></div>
+<div id="foot">This page updates automatically while the rider's app is open. If it stops, the position shown is the last one received.</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+var ID=${JSON.stringify(safe)};
+var map=L.map('map');var mk=null;
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',{attribution:'Esri, HERE, Garmin, OpenStreetMap'}).addTo(map);
+function ago(s){if(s<60)return s+'s ago';if(s<3600)return Math.round(s/60)+'m ago';return Math.round(s/3600)+'h ago';}
+function tick(){fetch('/api/live/'+ID).then(function(r){return r.json();}).then(function(d){
+  if(!d.ok){document.getElementById('bar').textContent='No live position yet for this alert.';return;}
+  var ll=[d.lat,d.lng];
+  if(!mk){mk=L.marker(ll).addTo(map);map.setView(ll,15);}
+  else{mk.setLatLng(ll);map.panTo(ll);}
+  var stale=d.ageSeconds>25;
+  document.getElementById('bar').innerHTML=(stale?'⚠️ Last seen ':'🟢 Live - updated ')+ago(d.ageSeconds)+' &middot; '+d.lat.toFixed(5)+', '+d.lng.toFixed(5)+' <a href="https://maps.google.com/?q='+d.lat+','+d.lng+'" target="_blank">open in Google Maps</a>';
+}).catch(function(){});}
+tick();setInterval(tick,4000);
+</script>
+</body></html>`;
+  res.type("html").send(page);
 });
 
 // Manual or Automated Emergency Dispatch
@@ -385,6 +448,15 @@ app.post("/api/emergency/dispatch", async (req, res) => {
 
   const dispatchId = `DSP-${Date.now().toString().slice(-7)}`;
   const mapsLink = `https://maps.google.com/?q=${Number(location.lat).toFixed(6)},${Number(location.lng).toFixed(6)}`;
+  // Build the live-tracking link from the request host so it works on localhost
+  // for the demo (and behind a tunnel/proxy in the field via x-forwarded-proto).
+  const incId = incidentId || dispatchId;
+  const proto = (req.headers["x-forwarded-proto"] as string) || "http";
+  const host = req.headers.host || `localhost:${process.env.PORT || 5019}`;
+  const liveLink = `${proto}://${host}/live/${incId}`;
+  // Seed the store so the page already shows the alert point before the app's
+  // first GPS ping lands.
+  livePositions[incId] = { lat: Number(location.lat), lng: Number(location.lng), ts: Date.now(), riderName };
   const results: { channel: string; ok: boolean; detail: string }[] = [];
 
   // NOTE: we never auto-dial Police 15 / Rescue 1122 - that is a rider's tap
@@ -402,7 +474,7 @@ app.post("/api/emergency/dispatch", async (req, res) => {
       ),
     ];
     for (const em of recipients) {
-      const mail = await sendBrevoEmail({ to: em, riderName, reason, driverName, vehiclePlate, mapLink: mapsLink });
+      const mail = await sendBrevoEmail({ to: em, riderName, reason, driverName, vehiclePlate, mapLink: mapsLink, liveLink });
       results.push({
         channel: "email",
         ok: mail.ok,
@@ -427,8 +499,9 @@ app.post("/api/emergency/dispatch", async (req, res) => {
     dispatchId,
     status: "DISPATCHED",
     mapsLink,
+    liveLink,
+    incidentId: incId,
     results,
-    incidentId: incidentId || `INC-${Date.now().toString().slice(-6)}`,
     location: { ...location, mapsLink },
     dispatchedAt: new Date().toISOString(),
     protocol: "CODE_RED_AUTOMATED_SAFETY_INTERVENTION",
@@ -488,7 +561,10 @@ app.get("/api/routes", async (req, res) => {
     }
 
     const osrmUrl = `http://router.project-osrm.org/route/v1/driving/${pickup_lng},${pickup_lat};${drop_lng},${drop_lat}?overview=full&geometries=geojson&alternatives=3&steps=true`;
-    const cacheKey = `${pickup_lat},${pickup_lng};${drop_lat},${drop_lng}`;
+    // Version prefix in the key: bump it whenever the naming logic changes so
+    // stale on-disk entries (e.g. the old Urdu "Via مرری روڈ" summaries) can
+    // never be served over a fresh result.
+    const cacheKey = `v2-en|${pickup_lat},${pickup_lng};${drop_lat},${drop_lng}`;
 
     if (routeCache[cacheKey]) {
       res.json({ ...routeCache[cacheKey], cached: true });
@@ -579,18 +655,33 @@ app.get("/api/routes", async (req, res) => {
         });
         return set;
       });
-      routes.forEach((routeOut: any) => {
+      const minDist = Math.min(...routes.map((r: any) => r.distanceKm));
+      routes.forEach((routeOut: any, rank: number) => {
         const origIdx = Number(String(routeOut.id).split("_")[1]);
         const others = new Set<string>();
         stepSets.forEach((set, j) => { if (j !== origIdx) set.forEach((n) => others.add(n)); });
         const steps: any[] = (data.routes[origIdx]?.legs?.[0]?.steps) || [];
         const latin = (st: any) => /[a-zA-Z]/.test(String(st.name || ""));
-        const unique = steps.find((st) => st.name && st.name.length > 2 && !others.has(st.name) && latin(st))
-          || steps.find((st) => st.name && st.name.length > 2 && !others.has(st.name));
-        const first = steps.find((st) => st.name && st.name.length > 2 && latin(st))
-          || steps.find((st) => st.name && st.name.length > 2);
-        routeOut.summary = unique ? `Via ${unique.name}` : first ? `Via ${first.name}` : `Route ${origIdx + 1}`;
-        routeOut.color = ROUTE_COLORS[routes.indexOf(routeOut) % ROUTE_COLORS.length];
+        // Only ever display a Latin-script (English) road name. OSRM returns
+        // OSM's local `name` tag, which is Urdu for many Islamabad streets, and
+        // the public demo server has no name:en switch. So when a route has no
+        // English-named street we do NOT print the Urdu the rider can't read -
+        // we describe the route by its real rank instead (fastest / shortest /
+        // alternative), which is the same "short main road vs longer route"
+        // idea Google shows.
+        const named =
+          steps.find((st) => st.name && st.name.length > 2 && latin(st) && !others.has(st.name)) ||
+          steps.find((st) => st.name && st.name.length > 2 && latin(st));
+        if (named) {
+          routeOut.summary = `Via ${named.name}`;
+        } else if (rank === 0) {
+          routeOut.summary = "Fastest route";
+        } else if (routeOut.distanceKm === minDist) {
+          routeOut.summary = "Shortest route";
+        } else {
+          routeOut.summary = "Alternative route";
+        }
+        routeOut.color = ROUTE_COLORS[rank % ROUTE_COLORS.length];
       });
     }
 
