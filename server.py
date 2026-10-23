@@ -460,6 +460,11 @@ def upload_chunk():
             peak=raw_peak,
             yamnet_top_name=yamnet_label,
             model_danger_prob=(chunk_prob or 0.0),
+            # A loud-but-short burst (cough/sneeze/slam) must not read as a
+            # scream on energy+peak alone. Pass the pitch detector's verdict so
+            # the scorer only treats screaming voice as strong when pitch (or a
+            # vocal YAMNet label / distress word / model vote) corroborates it.
+            scream_pitch=bool(result.get("pitch_info", {}).get("screaming")),
         )
 
         # ── Compute chunk risk score (0-4) for the gauge (legacy) ──

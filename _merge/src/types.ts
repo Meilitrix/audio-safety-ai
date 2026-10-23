@@ -164,6 +164,19 @@ export interface AIFeedbackRecord {
 
 export type RouteSafetyLevel = "safe" | "moderate" | "less_safe" | "unrated";
 
+// Evidence behind a route's safety score - measured from open map data along
+// the route corridor. null means "not mapped here", not "unsafe".
+export interface RouteSafetyEvidence {
+  score: number;
+  level: RouteSafetyLevel;
+  litSharePct: number | null; // % of checkpoints near a lit street
+  helpMeters: number | null; // metres to nearest mapped police/hospital/clinic
+  helpKind: string | null;
+  activityPerKm: number | null; // mapped places per km (eyes on the street)
+  checkpoints: number;
+  reasons: string[]; // human-readable "why" bullets
+}
+
 export interface RouteOption {
   id: string;
   geometry: [number, number][]; // [lat, lng] pairs
@@ -173,6 +186,8 @@ export interface RouteOption {
   safetyScore: number | null; // null until the evidence engine scores it
   summary: string; // e.g. "Via Canal Bank Road"
   color?: string; // optional display colour (used by the desktop LiveMap)
+  evidenceStatus?: string; // "scored" | "unmapped_area" | "no_data"
+  safety?: RouteSafetyEvidence; // present only when evidence was found
 }
 
 export interface DeviationAlert {

@@ -9,7 +9,6 @@ import {
   Layers,
   ZoomIn,
   ZoomOut,
-  Shield,
   Navigation,
 } from "lucide-react";
 import { LocationItem, RideStatus, ThreatLevel, DriverProfile, RouteOption } from "../types";
@@ -146,6 +145,11 @@ export const LiveMap: React.FC<LiveMapProps> = ({
 
     mapInstanceRef.current = map;
 
+    // Remove the "Leaflet" flag/link prefix from the attribution bar. The data
+    // credit (© Esri, HERE, Garmin, OpenStreetMap contributors) stays: the free
+    // tile providers require it, and stripping it would breach their terms.
+    map.attributionControl.setPrefix("");
+
     const tileLayer = L.tileLayer(TILE_URLS[mapTheme], {
       maxZoom: 19,
       subdomains: "abc",
@@ -193,7 +197,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
       if (pickup && dropoff && rideStatus !== "SELECTING_DESTINATION") {
         map.fitBounds(
           [[pickup.lat, pickup.lng], [dropoff.lat, dropoff.lng]] as L.LatLngExpression[],
-          { padding: [60, 60] }
+          { paddingTopLeft: [48, 64], paddingBottomRight: [116, 150] }
         );
       }
       return;
@@ -234,7 +238,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
     const fitKey = `${selected.id}|${pickup.lat},${pickup.lng}|${dropoff?.lat ?? ""},${dropoff?.lng ?? ""}`;
     if (fittedKeyRef.current !== fitKey) {
       fittedKeyRef.current = fitKey;
-      map.fitBounds(selectedLine.getBounds(), { padding: [50, 50] });
+      map.fitBounds(selectedLine.getBounds(), { paddingTopLeft: [48, 64], paddingBottomRight: [116, 150] });
     }
   }, [routes, selectedRouteId, threatLevel, rideStatus, pickup?.lat, pickup?.lng, dropoff?.lat, dropoff?.lng]);
 
@@ -351,7 +355,7 @@ export const LiveMap: React.FC<LiveMapProps> = ({
   const avgKmH = rideStatus === "IN_TRIP" ? Math.round((routeDist / durMin) * 60) : 0;
 
   return (
-    <div className="relative w-full h-[300px] sm:h-[350px] lg:h-[400px] rounded-2xl overflow-hidden border border-slate-200 shadow-md select-none bg-white" style={compact ? { height: 196 } : undefined}>
+    <div className="relative w-full h-[300px] sm:h-[350px] lg:h-[400px] rounded-2xl overflow-hidden border border-slate-200 shadow-md select-none bg-white" style={compact ? { height: 224 } : undefined}>
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Top HUD - light glass pills (see .map-hud in index.css); the dark
@@ -380,11 +384,6 @@ export const LiveMap: React.FC<LiveMapProps> = ({
               </div>
             </>
           )}
-        </div>
-
-        <div className="map-hud px-3 py-1.5 flex items-center gap-2 text-xs pointer-events-auto">
-          <Shield className="w-4 h-4 text-emerald-600" />
-          <span className="font-bold text-[11px]">Police 15</span>
         </div>
       </div>
 

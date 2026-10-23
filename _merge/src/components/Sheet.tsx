@@ -5,10 +5,12 @@ export function BottomSheet({
   open,
   onClose,
   children,
+  dark,
 }: {
   open: boolean;
   onClose?: () => void;
   children: React.ReactNode;
+  dark?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -21,7 +23,7 @@ export function BottomSheet({
   return (
     <div className="sheet-root">
       <div className="sheet-backdrop" onClick={onClose} />
-      <div className="sheet" role="dialog" aria-modal="true">
+      <div className={"sheet" + (dark ? " dark" : "")} role="dialog" aria-modal="true">
         <div className="sheet-grab" />
         {children}
       </div>

@@ -7,9 +7,9 @@ import { PaymentMethod, AIFeedbackRecord, IncidentReport } from "../types";
 // driver's raast/EasyPaisa QR in the car, card is rare. "Abhi Pay" was dropped
 // on purpose - we are the safety layer, not a wallet asking to hold money.
 const PAY_OPTIONS: { id: PaymentMethod; label: string; note: string; detail: string }[] = [
-  { id: "cash", label: "Cash", note: "Pay the driver at drop-off", detail: "Hand the driver the exact fare when you reach your stop. No card, no app - still the most common way people pay in Islamabad." },
-  { id: "jazzcash", label: "JazzCash", note: "Scan the driver's JazzCash QR in the car", detail: "Open JazzCash and scan the driver's QR in the car. The money goes straight to their wallet - Abhi AI never holds or routes your payment." },
-  { id: "easypaisa", label: "EasyPaisa", note: "Scan the driver's EasyPaisa QR in the car", detail: "Open EasyPaisa and scan the driver's QR in the car. Sent person-to-person; we don't touch the money." },
+  { id: "cash", label: "Cash", note: "Pay the driver at drop-off", detail: "Hand the driver the fare at drop-off." },
+  { id: "jazzcash", label: "JazzCash", note: "Scan the driver's JazzCash QR in the car", detail: "Open JazzCash, scan the driver's QR, confirm the amount and send." },
+  { id: "easypaisa", label: "EasyPaisa", note: "Scan the driver's EasyPaisa QR in the car", detail: "Open EasyPaisa, scan the driver's QR, confirm the amount and send." },
   { id: "credit_card", label: "Card", note: "Visa / Mastercard", detail: "Visa / Mastercard / PayPak, charged automatically when the trip ends." },
 ];
 
@@ -43,12 +43,6 @@ export function PaySheet({
             </div>
           </div>
           <div className="t">Rs {farePkr}</div>
-        </div>
-        <div className="row">
-          <div className="grow">
-            <div className="s">Safety AI monitoring</div>
-          </div>
-          <div className="t" style={{ color: "var(--teal)" }}>Free</div>
         </div>
         <div className="row">
           <div className="grow">

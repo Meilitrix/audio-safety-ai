@@ -12,6 +12,10 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // Allow any Host so a public tunnel (cloudflared/ngrok random subdomain) can
+      // reach the dev server. This only disables Vite's DNS-rebinding host check;
+      // the app still runs behind our own express server for the demo.
+      allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

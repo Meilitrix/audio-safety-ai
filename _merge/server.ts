@@ -4,7 +4,6 @@ import fs from "fs";
 import os from "os";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
 import nodemailer from "nodemailer";
 
 dotenv.config();
@@ -17,278 +16,13 @@ const PORT = Number(process.env.PORT) || 5008;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// Initialize Gemini SDK with User-Agent as required by guidelines
-let geminiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI | null {
-  if (!geminiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey && apiKey !== "MY_GEMINI_API_KEY") {
-      geminiClient = new GoogleGenAI({
-        apiKey,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build",
-          },
-        },
-      });
-    }
-  }
-  return geminiClient;
-}
-
 // Health check endpoint
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     app: "Abhi AI",
     timestamp: new Date().toISOString(),
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY"),
   });
-});
-
-// Real-time Audio Chunk Analysis for Ride Safety
-app.post("/api/analyze-audio", async (req, res) => {
-  try {
-    const {
-      transcript = "",
-      audioBase64,
-      mimeType = "audio/webm",
-      decibels = 55,
-      historyWindow = [], // last 30-60s samples
-      consecutiveDistressCount = 0,
-      scenarioId,
-      location = { lat: 37.7749, lng: -122.4194, address: "Market St & 4th St, San Francisco, CA" },
-      driver = { name: "Devon Patel", vehicle: "Silver Tesla Model 3", plate: "CA 8XYZ492" },
-      rider = { name: "Alex Morgan" },
-    } = req.body;
-
-    const ai = getGeminiClient();
-
-    let aiResult: any = null;
-
-    if (ai) {
-      try {
-        const prompt = `You are the acoustic safety intelligence engine for Abhi AI, a ride-hailing platform.
-Analyze the following in-cabin audio event during an active ride to assess potential risk to the passenger:
-
-Current Audio/Transcript Context:
-- Detected in-cabin speech/transcript: "${transcript}"
-- Measured noise level: ${decibels} dB
-- Consecutive elevated distress chunks so far: ${consecutiveDistressCount}
-- Recent history over past 30-60 seconds: ${JSON.stringify(historyWindow.slice(-4))}
-
-Analyze specifically for:
-1. Engine sounds, road/traffic noise, hum -> regular ambient (NORMAL)
-2. Suspicious vocal outbursts, shouting, or aggressive tone of voice indicating distress -> if distress signals are increasing over 30-60 seconds, rate as ELEVATED.
-3. Explicit danger words or rider asking for help: "stop", "get away", "help", "let me out", "don't touch me", violent activity or harassment -> rate as CRITICAL_SOS.
-
-Return a valid JSON object ONLY with no markdown wrapping and no backticks:
-{
-  "threatLevel": "NORMAL" | "ELEVATED" | "CRITICAL_SOS",
-  "distressScore": number (0 to 100),
-  "backgroundAcoustic": "REGULAR_ENGINE_TRAFFIC" | "SUSPICIOUS_OUTBURSTS" | "DISTRESS_CRY",
-  "riderTone": "Calm" | "Apprehensive" | "Distressed" | "Screaming/Pleading",
-  "driverTone": "Normal" | "Friendly" | "Agitated" | "Aggressive/Hostile",
-  "detectedKeywords": string[],
-  "summary": string,
-  "escalationDetected": boolean,
-  "shouldAlertPolice": boolean,
-  "incidentCategory": "NONE" | "VERBAL_ABUSE" | "HARASSMENT" | "VIOLENT_ACTIVITY" | "DIRECT_DISTRESS_KEYWORD"
-}`;
-
-        let contents: any = prompt;
-        // If audio base64 is provided and valid, send as inline data part
-        if (audioBase64 && typeof audioBase64 === "string" && audioBase64.length > 100) {
-          contents = {
-            parts: [
-              {
-                inlineData: {
-                  mimeType: mimeType || "audio/webm",
-                  data: audioBase64,
-                },
-              },
-              { text: prompt },
-            ],
-          };
-        }
-
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Gemini API call timed out")), 4000)
-        );
-
-        const geminiCall = ai.models.generateContent({
-          model: "gemini-3.8-flash",
-          contents,
-          config: {
-            responseMimeType: "application/json",
-            temperature: 0.1,
-          },
-        });
-
-        const response: any = await Promise.race([geminiCall, timeoutPromise]);
-
-        const rawText = response.text || "";
-        const cleanJson = rawText.replace(/```json\s*|```/g, "").trim();
-        aiResult = JSON.parse(cleanJson);
-      } catch (geminiError) {
-        console.warn("Gemini audio analysis fallback to intelligent heuristic:", geminiError);
-      }
-    }
-
-    // If Gemini wasn't available or errored, provide deterministic safety heuristic
-    if (!aiResult) {
-      const lower = transcript.toLowerCase();
-      const isTrafficHorn =
-        scenarioId === "traffic_honk" ||
-        lower.includes("honk") ||
-        lower.includes("horn") ||
-        lower.includes("rickshaw") ||
-        lower.includes("traffic");
-
-      const criticalKeywords = [
-        "stop",
-        "let me out",
-        "get away",
-        "help",
-        "don't touch",
-        "police",
-        "call 15",
-        "bachao",
-        "madad",
-        "gaadi roko",
-        "roko",
-        "chhoro",
-        "darwaza kholo",
-        "door raho",
-        "harassment",
-      ];
-      const aggressiveKeywords = [
-        "shut up",
-        "chup kar",
-        "tameez se",
-        "bakwas mat kar",
-        "idiot",
-        "threat",
-        "scream",
-        "aggressive",
-      ];
-
-      const matchedCritical = criticalKeywords.filter((kw) => lower.includes(kw));
-      const matchedAggressive = aggressiveKeywords.filter((kw) => lower.includes(kw));
-
-      let threatLevel: "NORMAL" | "ELEVATED" | "CRITICAL_SOS" = "NORMAL";
-      let distressScore = 12;
-      let shouldAlertPolice = false;
-      let escalationDetected = false;
-      let incidentCategory = "NONE";
-
-      if (isTrafficHorn && matchedCritical.length === 0) {
-        threatLevel = "NORMAL";
-        distressScore = 15;
-        incidentCategory = "NONE";
-      } else if (matchedCritical.length > 0 || scenarioId === "critical_sos") {
-        threatLevel = "CRITICAL_SOS";
-        distressScore = 96;
-        shouldAlertPolice = true;
-        escalationDetected = true;
-        incidentCategory =
-          matchedCritical.some((k) => ["stop", "let me out", "gaadi roko", "roko", "bachao", "madad"].includes(k))
-            ? "DIRECT_DISTRESS_KEYWORD"
-            : "VIOLENT_ACTIVITY";
-      } else if (matchedAggressive.length > 0 || consecutiveDistressCount >= 1 || scenarioId === "escalated_argument") {
-        if (consecutiveDistressCount >= 1 || scenarioId === "escalated_argument") {
-          threatLevel = "CRITICAL_SOS";
-          distressScore = 88;
-          shouldAlertPolice = true;
-          escalationDetected = true;
-          incidentCategory = "VERBAL_ABUSE";
-        } else {
-          threatLevel = "ELEVATED";
-          distressScore = 65;
-          shouldAlertPolice = false;
-          escalationDetected = true;
-          incidentCategory = "HARASSMENT";
-        }
-      } else if (decibels > 85 && !isTrafficHorn) {
-        threatLevel = "ELEVATED";
-        distressScore = 58;
-        escalationDetected = true;
-      }
-
-      aiResult = {
-        threatLevel,
-        distressScore,
-        backgroundAcoustic: isTrafficHorn
-          ? "TRAFFIC_HONKS"
-          : threatLevel === "CRITICAL_SOS"
-          ? "DISTRESS_CRY"
-          : threatLevel === "ELEVATED"
-          ? "SUSPICIOUS_OUTBURSTS"
-          : "REGULAR_ENGINE_TRAFFIC",
-        riderTone: threatLevel === "CRITICAL_SOS" ? "Screaming/Pleading" : threatLevel === "ELEVATED" ? "Distressed" : "Calm",
-        driverTone: threatLevel === "CRITICAL_SOS" ? "Aggressive/Hostile" : threatLevel === "ELEVATED" ? "Agitated" : "Normal",
-        detectedKeywords: [...matchedCritical, ...matchedAggressive],
-        summary: threatLevel === "CRITICAL_SOS"
-          ? "Critical distress keywords and vocal plea detected inside vehicle in Pakistan. Emergency dispatch protocol triggered."
-          : threatLevel === "ELEVATED"
-          ? "Elevated vocal distress and hostility patterns detected in vehicle cabin. Monitoring consecutive chunks."
-          : isTrafficHorn
-          ? "Regular urban traffic noise and horn acoustics detected. Classified as normal ambient journey sound."
-          : "Regular cabin acoustics detected. Engine and road ambient within safe normal range.",
-        escalationDetected,
-        shouldAlertPolice,
-        incidentCategory,
-      };
-    }
-
-    // Build Incident Report if Elevated or Critical
-    let incidentReport = null;
-    if (aiResult.threatLevel !== "NORMAL" || aiResult.shouldAlertPolice) {
-      const incidentId = `INC-PAK-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
-      incidentReport = {
-        incidentId,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-        isoTime: new Date().toISOString(),
-        severity: aiResult.threatLevel,
-        category: aiResult.incidentCategory || "VERBAL_ABUSE",
-        summary: aiResult.summary,
-        detectedKeywords: aiResult.detectedKeywords || [],
-        transcriptSnippet: transcript || (aiResult.threatLevel === "CRITICAL_SOS" ? "Rider vocalized: 'Gaadi roko! Let me out! Bachao!'" : "Aggressive shouting and elevated acoustic pressure"),
-        riderTone: aiResult.riderTone,
-        driverTone: aiResult.driverTone,
-        backgroundAcoustic: aiResult.backgroundAcoustic,
-        distressScore: aiResult.distressScore,
-        gpsCoordinates: location,
-        vehicleDetails: {
-          driverName: driver.name,
-          vehicle: driver.vehicle,
-          plate: driver.plate,
-          riderName: rider.name,
-        },
-        emergencyDispatched: aiResult.shouldAlertPolice,
-        dispatchUnit: aiResult.shouldAlertPolice ? `PUNJAB POLICE 15 / RESCUE 1122 DISPATCH-UNIT-${Math.floor(10 + Math.random() * 89)}` : undefined,
-        actionsTaken: [
-          "Encrypted in-cabin audio chunk analyzed by Abhi AI RideShield",
-          aiResult.escalationDetected ? "Elevated distress pattern logged across 30s window" : "Acoustic anomaly flagged",
-          aiResult.shouldAlertPolice ? "Automated SOS alert transmitted to Punjab Police 15 & Rescue 1122 Emergency Desk" : "Cabin safety monitor placed on high alert",
-          "Live vehicle GPS telemetry locked to safety operations desk",
-        ],
-      };
-    }
-
-    res.json({
-      success: true,
-      timestamp: Date.now(),
-      ...aiResult,
-      incidentReport,
-    });
-  } catch (error: any) {
-    console.error("Error in /api/analyze-audio:", error);
-    res.status(500).json({
-      success: false,
-      error: error.message || "Failed to analyze audio chunk",
-    });
-  }
 });
 
 // ── SOS Dispatch Channel ──────────────────────────────────────────────────
@@ -552,6 +286,226 @@ const routeCache: Record<string, any> = (() => {
 // line twice. Assignment happens AFTER ranking (safest = first color).
 const ROUTE_COLORS = ["#0284c7", "#f59e0b", "#a855f7"];
 
+// ── Route safety evidence engine (OpenStreetMap via Overpass) ───────────────
+// The promise of this product is that a route is called safer for MEASURABLE
+// reasons, not a vibe. We only score what free, public OpenStreetMap data can
+// actually tell us along a route's corridor, and we say so when data is missing:
+//   • Street lighting  (highway ways tagged lit=yes/no)
+//   • Nearest mapped help point (police / hospital / clinic / fire station)
+//   • "Eyes on the street" - passive activity density (cafes, shops, street
+//     lamps, benches, pharmacies) per km of route
+// We deliberately DO NOT fake a crime rate or CCTV-coverage score - no public,
+// street-level dataset for those exists for Pakistan, so pretending would be a
+// lie. Anything we can't measure is returned as null and described as a gap.
+const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const overpassCache: Record<string, any> = {};
+
+const EARTH_R = 6371000;
+function haversine(aLat: number, aLng: number, bLat: number, bLng: number) {
+  const toR = Math.PI / 180;
+  const dLat = (bLat - aLat) * toR;
+  const dLng = (bLng - aLng) * toR;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(aLat * toR) * Math.cos(bLat * toR) * Math.sin(dLng / 2) ** 2;
+  return 2 * EARTH_R * Math.asin(Math.sqrt(s));
+}
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+function corridorBBox(coords: [number, number][], padDeg = 0.0016) {
+  const lats = coords.map((c) => c[0]);
+  const lngs = coords.map((c) => c[1]);
+  return {
+    minLat: Math.min(...lats) - padDeg,
+    maxLat: Math.max(...lats) + padDeg,
+    minLng: Math.min(...lngs) - padDeg,
+    maxLng: Math.max(...lngs) + padDeg,
+  };
+}
+// Sample every Nth vertex (always keep the last) so nearest-match stays cheap.
+function samplePoints(coords: [number, number][], every = 5): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < coords.length; i += every) pts.push(coords[i]);
+  const last = coords[coords.length - 1];
+  if (last && (pts.length === 0 || pts[pts.length - 1] !== last)) pts.push(last);
+  return pts;
+}
+function pathLengthKm(pts: [number, number][]) {
+  let s = 0;
+  for (let i = 1; i < pts.length; i++) s += haversine(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]);
+  return s / 1000;
+}
+function centerOf(f: any): [number, number] | null {
+  if (typeof f.lat === "number" && typeof f.lon === "number") return [f.lat, f.lon];
+  if (f.center) return [f.center.lat, f.center.lon];
+  if (Array.isArray(f.geometry) && f.geometry[0]) return [f.geometry[0].lat, f.geometry[0].lon];
+  return null;
+}
+function nearestDist(p: [number, number], list: [number, number][]): number | null {
+  if (!list.length) return null;
+  let best = Infinity;
+  for (const q of list) {
+    const d = haversine(p[0], p[1], q[0], q[1]);
+    if (d < best) best = d;
+  }
+  return best === Infinity ? null : best;
+}
+
+async function fetchCorridor(bbox: ReturnType<typeof corridorBBox>) {
+  const key = [bbox.minLat, bbox.maxLat, bbox.minLng, bbox.maxLng].map((n) => n.toFixed(4)).join(",");
+  if (overpassCache[key]) return overpassCache[key];
+  const area = `${bbox.minLat.toFixed(5)},${bbox.minLng.toFixed(5)},${bbox.maxLat.toFixed(5)},${bbox.maxLng.toFixed(5)}`;
+  const q = `[out:json][timeout:25];(
+    way["highway"]["lit"](${area});
+    node["amenity"~"^(police|hospital|clinic|doctors|fire_station)$"](${area});
+    node["amenity"~"^(cafe|restaurant|fast_food|bar|pharmacy|atm)$"](${area});
+    node["shop"](${area});
+    node["highway"="street_lamp"](${area});
+    node["amenity"="bench"](${area});
+  );out center tags;`;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const r = await fetch(OVERPASS_URL, {
+      method: "POST",
+      // Overpass's nginx returns 406 to the default Node/undici User-Agent, so
+      // identify ourselves; it also accepts the query, just slowly when queued.
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "AbhiAI-route-safety/1.0 (hackathon demo)" },
+      body: "data=" + encodeURIComponent(q),
+      signal: ctrl.signal,
+    });
+    if (!r.ok) throw new Error(`Overpass ${r.status}`);
+    const j = await r.json();
+    overpassCache[key] = j;
+    return j;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function computeRouteMetrics(coords: [number, number][], corridor: any) {
+  const pts = samplePoints(coords, 5);
+  const litYes: [number, number][] = [];
+  const litNo: [number, number][] = [];
+  const help: { c: [number, number]; kind: string }[] = [];
+  const activity: [number, number][] = [];
+  for (const el of (corridor && corridor.elements) || []) {
+    const t = el.tags || {};
+    const c = centerOf(el);
+    if (!c) continue;
+    if (el.type === "way" && t.highway && t.lit) {
+      if (t.lit === "no") litNo.push(c); else litYes.push(c);
+    } else if (el.type === "node") {
+      if (t.amenity && /police|hospital|clinic|doctors|fire_station/.test(t.amenity)) {
+        help.push({ c, kind: t.amenity });
+      } else if (
+        (t.amenity && /cafe|restaurant|fast_food|bar|pharmacy|atm/.test(t.amenity)) ||
+        t.shop || t.highway === "street_lamp" || t.amenity === "bench"
+      ) {
+        activity.push(c);
+      }
+    }
+  }
+  // Lighting coverage: among checkpoints that sit near a MAPPED-lit or MAPPED-
+  // unlit street, what share are by a lit one. We only count checkpoints with
+  // lighting data so an unmapped street never unfairly sinks the score.
+  const NEAR_M = 130;
+  let litMapped = 0, litGood = 0;
+  for (const p of pts) {
+    const dy = nearestDist(p, litYes) ?? Infinity;
+    const dn = nearestDist(p, litNo) ?? Infinity;
+    if (Math.min(dy, dn) <= NEAR_M) { litMapped++; if (dy <= dn) litGood++; }
+  }
+  const litSharePct = litMapped > 0 ? Math.round((100 * litGood) / litMapped) : null;
+  // Nearest help point: min distance from any checkpoint to any help node.
+  let helpMeters: number | null = null, helpKind: string | null = null;
+  for (const h of help) {
+    let dmin = Infinity;
+    for (const p of pts) { const d = haversine(p[0], p[1], h.c[0], h.c[1]); if (d < dmin) dmin = d; }
+    if (helpMeters === null || dmin < helpMeters) { helpMeters = Math.round(dmin); helpKind = h.kind; }
+  }
+  const km = pathLengthKm(pts);
+  const activityPerKm = km > 0.2 ? Math.round((activity.length / km) * 10) / 10 : null;
+  return { checkpoints: pts.length, litMappedCount: litMapped, litSharePct, helpMeters, helpKind, activityPerKm };
+}
+
+function scoreRoute(m: ReturnType<typeof computeRouteMetrics>, night: boolean) {
+  // null signal -> neutral 0.5 (data gap neither helps nor hurts). Weights tilt
+  // toward lighting after dark and toward help+activity in daylight.
+  const lit = m.litSharePct == null ? 0.5 : clamp01(m.litSharePct / 100);
+  const help = m.helpMeters == null ? 0.5 : clamp01(1 - m.helpMeters / 2500);
+  const act = m.activityPerKm == null ? 0.5 : clamp01(m.activityPerKm / 8);
+  const w = night ? { lit: 0.5, help: 0.25, act: 0.25 } : { lit: 0.3, help: 0.4, act: 0.3 };
+  return Math.round(100 * (w.lit * lit + w.help * help + w.act * act));
+}
+function levelOf(score: number): "safe" | "moderate" | "less_safe" {
+  return score >= 67 ? "safe" : score >= 45 ? "moderate" : "less_safe";
+}
+const fmtDist = (m: number) => (m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`);
+function buildReasons(m: ReturnType<typeof computeRouteMetrics>, night: boolean) {
+  const r: string[] = [];
+  if (m.litSharePct != null) {
+    r.push(`${night ? "Well-lit after dark - " : "Street lighting on "}${m.litSharePct}% of checkpoints`);
+  } else {
+    r.push("Street lighting not mapped for this area");
+  }
+  if (m.helpMeters != null) {
+    const k = m.helpKind === "police" ? "police station" : m.helpKind === "fire_station" ? "fire station" : m.helpKind === "hospital" ? "hospital" : m.helpKind === "clinic" || m.helpKind === "doctors" ? "clinic" : "help point";
+    r.push(`Nearest ${k} ~${fmtDist(m.helpMeters)} off route`);
+  } else {
+    r.push("No police/hospital mapped near this corridor");
+  }
+  if (m.activityPerKm != null) {
+    r.push(`${m.activityPerKm} mapped places/km (busier street = more people around)`);
+  }
+  return r;
+}
+
+// Mutates the route objects with safety fields and re-orders safest-first.
+// Uses ONE Overpass call over the union of all route corridors (alternative
+// routes overlap heavily) so we don't fire parallel requests that trip the
+// public instance's rate limiter. Result is cached per corridor in-process.
+async function scoreRoutesForSafety(routes: any[], night: boolean) {
+  if (routes.length === 0) return;
+  let corridor: any = null;
+  try {
+    const allCoords = routes.reduce<[number, number][]>((acc, r) => acc.concat(r.geometry as [number, number][]), []);
+    corridor = await fetchCorridor(corridorBBox(allCoords));
+  } catch (e) {
+    console.warn("safety engine: corridor fetch failed (routes stay unrated):", (e as any)?.message || e);
+    return;
+  }
+  const metrics = routes.map((r) => {
+    try {
+      return computeRouteMetrics(r.geometry as [number, number][], corridor);
+    } catch {
+      return null;
+    }
+  });
+  let anyScored = false;
+  routes.forEach((route, i) => {
+    const m = metrics[i];
+    const measured = m ? [m.litSharePct, m.helpMeters, m.activityPerKm].filter((x) => x != null).length : 0;
+    if (!m || measured === 0) {
+      route.evidenceStatus = m ? "unmapped_area" : "no_data";
+      return;
+    }
+    const score = scoreRoute(m, night);
+    route.safetyLevel = levelOf(score);
+    route.safetyScore = score;
+    route.evidenceStatus = "scored";
+    route.safety = { ...m, score, level: route.safetyLevel, reasons: buildReasons(m, night) };
+    anyScored = true;
+  });
+  if (anyScored) {
+    routes.sort((a, b) => {
+      const sa = a.safetyScore == null ? -1 : a.safetyScore;
+      const sb = b.safetyScore == null ? -1 : b.safetyScore;
+      return sb - sa || a.durationMin - b.durationMin;
+    });
+  }
+}
+
 app.get("/api/routes", async (req, res) => {
   try {
     const { pickup_lat, pickup_lng, drop_lat, drop_lng } = req.query;
@@ -564,7 +518,11 @@ app.get("/api/routes", async (req, res) => {
     // Version prefix in the key: bump it whenever the naming logic changes so
     // stale on-disk entries (e.g. the old Urdu "Via مرری روڈ" summaries) can
     // never be served over a fresh result.
-    const cacheKey = `v2-en|${pickup_lat},${pickup_lng};${drop_lat},${drop_lng}`;
+    // Whether the rider is searching at night (client passes night=1). We
+    // weight street lighting more heavily after dark, and cache day/night apart
+    // so a daytime score never leaks into a night query.
+    const night = String(req.query.night) === "1";
+    const cacheKey = `v3-safety|${night ? "N" : "D"}|${pickup_lat},${pickup_lng};${drop_lat},${drop_lng}`;
 
     if (routeCache[cacheKey]) {
       res.json({ ...routeCache[cacheKey], cached: true });
@@ -685,12 +643,30 @@ app.get("/api/routes", async (req, res) => {
       });
     }
 
-    const payload = { success: true, routes, singleRoute: routes.length === 1 };
-    routeCache[cacheKey] = payload;
+    // Best-effort safety evidence from open map data. Mutates routes with
+    // score/level/reasons and re-orders safest-first. If Overpass is unreachable
+    // the routes simply stay "unrated" and the UI already says so out loud.
     try {
-      fs.writeFileSync(ROUTE_CACHE_FILE, JSON.stringify(routeCache));
-    } catch {
-      /* cache write is best-effort */
+      await scoreRoutesForSafety(routes, night);
+    } catch (e) {
+      console.warn("/api/routes safety engine failed:", e);
+    }
+
+    const payload = { success: true, routes, singleRoute: routes.length === 1 };
+    // Only cache a result where the safety engine actually completed (scored or
+    // genuinely unmapped). If Overpass was unreachable the routes are still
+    // "unrated" - caching that would freeze a transient network miss into the
+    // demo. Leave it uncached so a later search retries and can succeed.
+    const safetyResolved = routes.every(
+      (r: any) => r.evidenceStatus === "scored" || r.evidenceStatus === "unmapped_area"
+    );
+    if (safetyResolved) {
+      routeCache[cacheKey] = payload;
+      try {
+        fs.writeFileSync(ROUTE_CACHE_FILE, JSON.stringify(routeCache));
+      } catch {
+        /* cache write is best-effort */
+      }
     }
     res.json(payload);
   } catch (err: any) {

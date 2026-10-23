@@ -6,7 +6,7 @@ import {
 import { POPULAR_LOCATIONS, AVAILABLE_PAKISTANI_DRIVERS } from "./data/rideData";
 import { useAudioSafety } from "./hooks/useAudioSafety";
 import { LiveMap } from "./components/LiveMap";
-import { Car, Radar, Users, RotateCcw } from "lucide-react";
+import { Car, Radar, Menu, Users, Share2, Gauge, Mic, MapPin, X, Info } from "lucide-react";
 import { DangerGauge } from "./components/DangerGauge";
 import { BottomSheet, Wave } from "./components/Sheet";
 import { PaySheet, FeedbackSheet, DebriefSheet } from "./components/RideEndSheets";
@@ -49,9 +49,8 @@ export default function App() {
   // ── Rider profile + contacts (persisted) ─────────────────────────
   const [riderName, setRiderName] = useState(() => loadJSON<{ name: string }>("abhi_rider", { name: initialStage !== "SELECTING_DESTINATION" ? "Demo Rider" : "" }).name);
   const [riderDraft, setRiderDraft] = useState("");
-  const [onboarded, setOnboarded] = useState(() => Boolean(loadJSON<{ name: string }>("abhi_rider", { name: "" }).name) || initialStage !== "SELECTING_DESTINATION");
-  const [contacts, setContacts] = useState<EmergencyContact[]>(() => loadJSON("abhi_emergency_contacts", INITIAL_EMERGENCY_CONTACTS));
-  const [isContactsOpen, setIsContactsOpen] = useState(false);
+  const [onboarded, setOnboarded] = useState(() => initialStage !== "SELECTING_DESTINATION");
+  const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [isDashOpen, setIsDashOpen] = useState(false);
   const [permOpen, setPermOpen] = useState(false);
   const [payChoice, setPayChoice] = useState<{ method: PaymentMethod; total: number } | null>(null);
@@ -62,6 +61,17 @@ export default function App() {
   const [livePos, setLivePos] = useState<LngLat | null>(null);
   const [gpsLabel, setGpsLabel] = useState("acquiring GPS…");
   const [sosSheet, setSosSheet] = useState<"closed" | "prompt" | "results">("closed");
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [menuFocusContacts, setMenuFocusContacts] = useState(false);
+  // Splash: every cold load opens on the Abhi AI logo + loading wheel, then
+  // reveals the profile screen. The app no longer skips straight to "Where
+  // to?" from a previous session - demos start fresh and use the one-tap
+  // "Use my saved details" autofill instead.
+  const [splash, setSplash] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setSplash(false), 2400);
+    return () => clearTimeout(t);
+  }, []);
   const [sosReason, setSosReason] = useState("");
   const [sosCountdown, setSosCountdown] = useState(SAFETY_CHECK_SECONDS);
   const [incident, setIncident] = useState<IncidentReport | null>(null);
@@ -100,6 +110,10 @@ export default function App() {
         pickup_lat: String(pickup.lat), pickup_lng: String(pickup.lng),
         drop_lat: String(dropoff.lat), drop_lng: String(dropoff.lng),
       });
+      // Tell the safety engine if it's dark out - we weight street lighting
+      // more after sunset. Local hour of the search is a fair proxy here.
+      const _h = new Date().getHours();
+      params.set("night", _h < 6 || _h >= 18 ? "1" : "0");
       const res = await fetch(`/api/routes?${params}`);
       const data = await res.json();
       if (res.ok && data.success && data.routes?.length > 0) {
@@ -402,12 +416,11 @@ export default function App() {
   // ── Render: one screen per stage ─────────────────────────────────
   return (
     <div className="app-frame">
+      {splash && <Splash />}
       <TopBar
-        riderName={riderName}
-        threat={threatLevel}
-        monitoring={audio.isMonitoring}
-        onContacts={() => setIsContactsOpen(true)}
-        onReset={onboarded ? resetAll : undefined}
+        hasContacts={contacts.length > 0}
+        onMenu={onboarded ? () => { setMenuFocusContacts(false); setSafetyOpen(true); } : undefined}
+        onContacts={onboarded ? () => { setMenuFocusContacts(true); setSafetyOpen(true); } : undefined}
       />
       <div className="app-scroll">
         {!onboarded ? (
@@ -418,6 +431,7 @@ export default function App() {
             onDone={() => {
               setRiderName(riderDraft.trim());
               saveJSON("abhi_rider", { name: riderDraft.trim() });
+              saveJSON("abhi_demo_profile", { name: riderDraft.trim(), contacts });
               setOnboarded(true);
             }}
             addContact={(c) => setContacts((prev) => { const n = [...prev, c]; saveJSON("abhi_emergency_contacts", n); return n; })}
@@ -455,7 +469,7 @@ export default function App() {
             )}
             {stage === "SEARCHING_DRIVER" && (
               <div className="card center-screen" style={{ marginTop: 40 }}>
-                <div className="spin" style={{ margin: "18px auto" }} />
+                <LoadingWheel />
                 <p className="sheet-title">Finding you a driver…</p>
                 <p className="sub">Sharing your safe route with verified Abhi AI drivers nearby.</p>
               </div>
@@ -510,11 +524,22 @@ export default function App() {
       </div>
 
       {/* ── Sheets ── */}
-      <ContactsSheet
-        open={isContactsOpen}
+      <SideMenu
+        open={safetyOpen}
+        focusContacts={menuFocusContacts}
+        isMonitoring={audio.isMonitoring}
+        onClose={() => setSafetyOpen(false)}
         contacts={contacts}
-        onClose={() => setIsContactsOpen(false)}
-        onSave={(n) => { setContacts(n); saveJSON("abhi_emergency_contacts", n); }}
+        onSaveContacts={(n: EmergencyContact[]) => { setContacts(n); saveJSON("abhi_emergency_contacts", n); }}
+        onSOS={() => { setSafetyOpen(false); manualSOS(); }}
+        onShare={() => {
+          setSafetyOpen(false);
+          const link = mapsLinkFor(currentPos ?? { lat: pickup.lat, lng: pickup.lng });
+          if (navigator.share) navigator.share({ title: "My location - Abhi AI", url: link }).catch(() => {});
+          else navigator.clipboard?.writeText(link);
+        }}
+        onOpenDashboard={() => { setSafetyOpen(false); setIsDashOpen(true); }}
+        onTest={() => { if (!audio.isMonitoring) audio.startMonitoring(); }}
       />
       <SosPromptSheet
         open={sosSheet === "prompt"}
@@ -565,13 +590,33 @@ export default function App() {
 
 /* ══════════════════════════ Screens ══════════════════════════ */
 
-function TopBar({ threat, monitoring, onContacts, onReset }: any) {
-  const chip =
-    threat === "CRITICAL_SOS" ? <span className="chip bad">Danger</span>
-    : threat === "ELEVATED" ? <span className="chip warn">Elevated</span>
-    : threat === "MONITORING" ? <span className="chip info">Watching</span>
-    : monitoring ? <span className="chip ok">Safe</span>
-    : null;
+/* Branded loading spinner: a spinning wheel with dotted "speed marks"
+   trailing off its bottom to the left and fading out - echoing the motion
+   lines on the Abhi AI logo. Pure CSS (see .load-wheel in index.css). */
+function LoadingWheel() {
+  return (
+    <div className="load-wheel" aria-hidden="true">
+      <span className="load-wheel-lines"><i /><i /><i /><i /><i /></span>
+      <div className="wheel">
+        <span className="wheel-spokes" />
+        <span className="wheel-hub" />
+      </div>
+    </div>
+  );
+}
+
+/* Cold-load splash: the logo appears first, then the loading wheel, then the
+   whole thing fades to reveal the profile screen behind it. */
+function Splash() {
+  return (
+    <div className="splash" aria-hidden="true">
+      <img className="splash-logo" src="/logo.png" alt="Abhi AI" />
+      <div className="splash-wheel"><LoadingWheel /></div>
+    </div>
+  );
+}
+
+function TopBar({ hasContacts, onMenu, onContacts }: any) {
   return (
     <div className="topbar">
       <div className="brand">
@@ -581,10 +626,19 @@ function TopBar({ threat, monitoring, onContacts, onReset }: any) {
         <div className="name">Abhi AI</div>
       </div>
       <div className="topbar-actions">
-        {chip}
-        <button className="icon-btn" onClick={onContacts} aria-label="Emergency contacts" title="Emergency contacts"><Users style={{ width: 18, height: 18 }} /></button>
-        {onReset && (
-          <button className="icon-btn" onClick={onReset} aria-label="New ride" title="Start a new ride"><RotateCcw style={{ width: 18, height: 18 }} /></button>
+        {/* Two clearly-labelled entries that both open the same side menu: a
+            plain "Emergency contacts" button so the one must-do action is
+            impossible to miss, plus the hamburger for everything else.
+            Neither fires an alert on a tap. */}
+        {onContacts && (
+          <button className="contacts-btn" onClick={onContacts} title="Emergency contacts">
+            <Users style={{ width: 16, height: 16 }} /> {hasContacts ? "Emergency contacts" : "Add contacts"}
+          </button>
+        )}
+        {onMenu && (
+          <button className="hamburger-btn" onClick={onMenu} aria-label="Menu" title="Menu">
+            <Menu style={{ width: 20, height: 20 }} />
+          </button>
         )}
       </div>
     </div>
@@ -595,18 +649,32 @@ function Onboard({ draft, setDraft, contacts, onDone, addContact, removeContact 
   const [newName, setNewName] = useState("");
   const [newPhone, setNewPhone] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  const saved = loadJSON<{ name: string; contacts: EmergencyContact[] } | null>("abhi_demo_profile", null);
+  const applySaved = () => {
+    if (!saved) return;
+    if (saved.name) setDraft(saved.name);
+    const have = new Set(contacts.map((c: EmergencyContact) => c.phone));
+    (saved.contacts || []).forEach((c: EmergencyContact, i: number) => {
+      if (c.phone && !have.has(c.phone)) addContact({ ...c, id: `ec_${Date.now()}_${i}` });
+    });
+  };
   return (
     <>
       <div className="steps"><i className="done" /><i className="now" /><i /></div>
       <h1 className="h-hero">Welcome to Abhi AI</h1>
-      <p className="sub">Ride-hailing with an audio safety shield that listens for danger - never records.</p>
+      <p className="sub">Ride with peace of mind. Abhi AI listens for danger sounds as you go.</p>
+      {saved && (
+        <button className="btn ghost" style={{ minHeight: 44 }} onClick={applySaved}>
+          Use my saved details
+        </button>
+      )}
       <div className="card" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div className="field">
           <label>Your name</label>
           <input className="input" placeholder="e.g. Ayesha" value={draft} onChange={(e) => setDraft(e.target.value)} />
         </div>
         <p className="section-title">Emergency contacts</p>
-        <p className="sub" style={{ marginTop: -6 }}>When an SOS fires, every contact with an email gets the live-location alert. Add at least one.</p>
+        <p className="sub" style={{ marginTop: -6 }}>If you send an SOS, we alert these people with your live location. Add at least one.</p>
         {contacts.map((c: EmergencyContact) => (
           <div className="row" key={c.id}>
             <div className="grow"><div className="t">{c.name}</div><div className="s">{c.phone}{c.email ? ' | ' + c.email : ''}</div></div>
@@ -617,7 +685,7 @@ function Onboard({ draft, setDraft, contacts, onDone, addContact, removeContact 
           <input className="input" placeholder="Name" value={newName} onChange={(e) => setNewName(e.target.value)} />
           <input className="input" placeholder="+92 3xx xxxxxxx" value={newPhone} onChange={(e) => setNewPhone(e.target.value)} />
         </div>
-        <input className="input" placeholder="email (for SOS alerts)" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} style={{ marginTop: 6 }} />
+        <input className="input" placeholder="Email (optional)" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} style={{ marginTop: 6 }} />
         <button
           className="btn ghost"
           style={{ minHeight: 44 }}
@@ -689,7 +757,6 @@ function Destination({ riderName, pickup, dropoff, setPickup, setDropoff, onGo }
           selectedRouteId={null}
           deviationPosition={null}
         />
-        <span className="cap">The map glides to whichever pin you move.</span>
       </div>
       <div className="card pick-card" ref={pickRef} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <div className={"pick-row" + (editTarget === "pickup" ? " active" : "")} onClick={() => pickTarget("pickup")}>
@@ -736,10 +803,24 @@ function Destination({ riderName, pickup, dropoff, setPickup, setDropoff, onGo }
 }
 
 function RouteChoice({ pickup, dropoff, routes, loading, error, selectedId, onSelect, onRetry, onBack, onConfirm }: any) {
+  const [showInfo, setShowInfo] = useState(false);
+  // The open-map safety facts live in a tooltip, NOT on the card. The first
+  // time a route is selected the tooltip pops once so the rider learns it;
+  // after that it stays closed and they tap the ⓘ to read it again. The card
+  // itself only identifies the route: name, distance/time, endpoint address,
+  // and (once selected) the exact coordinates.
+  const [tipId, setTipId] = useState<string | null>(null);
+  const seenRef = useRef<Record<string, boolean>>({});
   return (
     <>
       <div className="steps"><i className="done" /><i className="now" /><i /><i /></div>
-      <h1 className="h-hero">Pick your route</h1>
+      <div className="h-row">
+        <h1 className="h-hero">Pick your route</h1>
+        <button className={"info-mark" + (showInfo ? " on" : "")} onClick={() => setShowInfo((v) => !v)} aria-label="About these facts" title="About these facts"><Info style={{ width: 15, height: 15 }} /></button>
+      </div>
+      {showInfo && (
+        <p className="route-note">Open-map facts only - street lighting, how near the closest police station or hospital is, and how busy the road is. Not a crime score.</p>
+      )}
       <div className="card map-card">
         <LiveMap
           pickup={pickup}
@@ -752,7 +833,6 @@ function RouteChoice({ pickup, dropoff, routes, loading, error, selectedId, onSe
           selectedRouteId={selectedId}
           deviationPosition={null}
         />
-        <span className="cap">Tap a route below to light it up on the map.</span>
       </div>
       {error && (
         <div className="banner warn">
@@ -761,23 +841,42 @@ function RouteChoice({ pickup, dropoff, routes, loading, error, selectedId, onSe
         </div>
       )}
       {loading && (
-        <div className="card center-screen"><div className="spin" style={{ margin: "16px auto" }} /><p className="sub">Loading routes from live map data…</p></div>
+        <div className="card center-screen"><LoadingWheel /><p className="sub">Loading routes from live map data…</p></div>
       )}
       {routes.map((r: RouteOption) => {
-        // The server returns "unrated" until the safety evidence engine exists,
-        // so the card says that in words instead of inventing a number.
-        const chipCls = r.safetyLevel === "safe" ? "ok" : r.safetyLevel === "moderate" ? "warn" : r.safetyLevel === "unrated" ? "gray" : "bad";
-        const chipTxt = r.safetyLevel === "safe" ? "Safe" : r.safetyLevel === "moderate" ? "Moderate" : r.safetyLevel === "unrated" ? "Safety: not rated yet" : "Less safe";
+        const selected = selectedId === r.id;
+        const choose = () => {
+          onSelect(r.id);
+          // Reveal the facts tooltip the very first time this route is chosen;
+          // on any later selection leave it closed so the rider taps ⓘ to see it.
+          if (!seenRef.current[r.id]) { seenRef.current[r.id] = true; setTipId(r.id); }
+          else { setTipId(null); }
+        };
         return (
-          <div key={r.id} className={"card route-card" + (selectedId === r.id ? " sel" : "")} onClick={() => onSelect(r.id)}>
+          <div key={r.id} className={"card route-card" + (selected ? " sel" : "")} onClick={choose}>
             <div className="route-head">
-              <div><div className="t" style={{ fontWeight: 800 }}><span style={{ color: r.color || "var(--brand)" }}>●</span> {r.summary}</div></div>
-              <span className={"chip " + chipCls}>{chipTxt}{r.safetyScore != null ? ` · ${r.safetyScore}` : ""}</span>
+              <div className="route-title"><div className="t" style={{ fontWeight: 800 }}><span style={{ color: r.color || "var(--brand)" }}>●</span> {r.summary}</div></div>
+              <div className="route-head-right">
+                <span className="route-quick">{r.distanceKm} km · ~{r.durationMin} min</span>
+                <button className="route-info-mark" onClick={(e) => { e.stopPropagation(); setTipId((cur) => (cur === r.id ? null : r.id)); }} aria-label="Safety facts for this route" title="Safety facts for this route"><Info style={{ width: 14, height: 14 }} /></button>
+              </div>
             </div>
-            <div className="route-stats">
-              <span>{r.distanceKm} km</span>
-              <span>~{r.durationMin} min</span>
+            <div className="route-where">
+              <div className="route-addr"><span className="lbl">From</span>{pickup?.address || pickup?.title}</div>
+              {dropoff && <div className="route-addr"><span className="lbl">To</span>{dropoff.address || dropoff.title}</div>}
+              {selected && pickup && dropoff && (
+                <div className="route-coords">{pickup.lat.toFixed(5)}, {pickup.lng.toFixed(5)} → {dropoff.lat.toFixed(5)}, {dropoff.lng.toFixed(5)}</div>
+              )}
             </div>
+            {tipId === r.id && (
+              <div className="route-tip" role="tooltip">
+                {r.safety && r.safety.reasons.length > 0 ? (
+                  r.safety.reasons.map((why, i) => <div className="route-tip-line" key={i}>{why}</div>)
+                ) : (
+                  <div className="route-tip-line muted">Little open-map data here to describe this route.</div>
+                )}
+              </div>
+            )}
           </div>
         );
       })}
@@ -895,7 +994,6 @@ function Arrival({ driver, route, pickup, dropoff, onBoard, onBack }: any) {
           selectedRouteId={route?.id ?? null}
           deviationPosition={null}
         />
-        <span className="cap">The car moves along the route toward your pickup.</span>
       </div>
       <div className="banner info" style={{ justifyContent: "center", textAlign: "center" }}><span>Safety AI monitoring starts when you board.<br />One-touch SOS is on the trip screen.</span></div>
       <div className="cta">
@@ -943,9 +1041,8 @@ function Trip({ driver, route, pickup, dropoff, progress, tripMinutes, audio, th
           routes={route ? [route] : []}
           selectedRouteId={route?.id ?? null}
           deviationPosition={null}
-          compact
         />
-        <span className="cap">{gpsLabel}</span>
+        <span className="cap">Trip progress</span>
       </div>
 
       {deviationOn && (
@@ -965,65 +1062,49 @@ function Trip({ driver, route, pickup, dropoff, progress, tripMinutes, audio, th
             {threatLevel === "CRITICAL_SOS" ? "Danger" : threatLevel === "ELEVATED" ? "Elevated" : threatLevel === "MONITORING" ? "Watching" : "Calm"}
           </span>
         </div>
-        {/* Dial left, real actions right: the empty band beside the dial used
-            to be dead space - the rider's fix, 2026-10-22. Evidence spans full
-            width below so the transcript is never squeezed into half a column. */}
+        {/* Dial on the left; the listening visual + live transcript fill the
+            space to its right so the card reads as one unit and the old empty
+            band is gone. SOS is one tap from the top bar - nothing critical
+            needs scrolling. */}
         <div className="trip-grid">
           <div className="trip-dial">
             <DangerGauge score={distressScore} label={audio.dialLabel} onClick={onOpenDashboard} />
-            <Wave levels={audio.getAudioLevels()} hot={hot} />
           </div>
-          <div className="trip-actions">
-            {/* Only genuine in-ride actions live here. The dashboard opens by
-                tapping the dial (v1 pattern); "call driver" was dropped - you
-                are already in the car with them. */}
-            <button className="btn ghost" onClick={() => {
-              const link = mapsLinkFor(currentPos ?? { lat: pickup.lat, lng: pickup.lng });
-              if (navigator.share) navigator.share({ title: "My location - Abhi AI", url: link }).catch(() => {});
-              else navigator.clipboard?.writeText(link);
-            }}>Share my location</button>
-            <button className="btn primary" onClick={onArrive}>End ride (demo)</button>
+          <div className="trip-listen">
+            <Wave levels={audio.getAudioLevels()} hot={hot} />
+            <div className="transcript">
+              {audio.transcript
+                ? `“…${String(audio.transcript).slice(-140)}”`
+                : audio.isMonitoring
+                  ? "🎙️ Try saying something. Abhi AI is listening."
+                  : "Monitor off. Allow the mic to start listening."}
+            </div>
+            {audio.lastResult?.keywords?.length > 0 && (
+              <div className="kw-row">{audio.lastResult.keywords.map((k: string, i: number) => <span key={i} className="kw">{k}</span>)}</div>
+            )}
           </div>
         </div>
-        <details className="ai-evidence">
-          <summary>What Abhi AI is hearing</summary>
-          <div className="transcript">
-            {audio.transcript
-              ? `“…${String(audio.transcript).slice(-140)}”`
-              : audio.isMonitoring
-                ? "Nothing picked up yet - quiet cabin."
-                : "Monitor off. The mic was not allowed, so nothing is being analyzed."}
-          </div>
-          {audio.lastResult && (
-            <div className="heard">
-              {/* Plain language, not raw model jargon. custom_label is our binary
-                  SAFE / DANGER classifier; sound_name is the closest YAMNet
-                  AudioSet class (can read oddly, e.g. "Arrow"), so it's shown as
-                  a small transparency note, never as the headline. */}
-              {(() => {
-                const lab = String(audio.lastResult.custom_label || "").toUpperCase();
-                const read = lab === "DANGER" ? "Possible distress - keep an eye out"
-                  : lab === "SAFE" ? "Nothing concerning so far"
-                  : "Analysing the cabin…";
-                return <span className="heard-read">{read}</span>;
-              })()}
-              {audio.lastResult.sound_name && (
-                <span className="heard-sub"> · closest sound match: {audio.lastResult.sound_name}</span>
-              )}
-            </div>
-          )}
-          {audio.lastResult?.keywords?.length > 0 && (
-            <div className="kw-row">{audio.lastResult.keywords.map((k: string, i: number) => <span key={i} className="kw">{k}</span>)}</div>
-          )}
-        </details>
+        <div className="trip-actions-row">
+          <button className="btn ghost" onClick={() => {
+            const link = mapsLinkFor(currentPos ?? { lat: pickup.lat, lng: pickup.lng });
+            if (navigator.share) navigator.share({ title: "My location - Abhi AI", url: link }).catch(() => {});
+            else navigator.clipboard?.writeText(link);
+          }}>Share my location</button>
+          <button className="btn primary" onClick={onArrive}>End ride</button>
+        </div>
       </div>
 
-      <div className="sos-row">
-        {/* Demo control tucked to the side of the siren, small and clearly a
-            rehearsal aid - not one of the rider's real actions. */}
-        <button className="demo-side" onClick={onSimulate} title="Demo only: fake a distress spike">Demo ⚡</button>
+      {/* Thumb-reachable SOS in the page itself (rider's call, 2026-10-23):
+          one deliberate hold sends your live location to contacts. Mirrored
+          in the top Safety drawer, so help works whether you scroll or not. */}
+      <div className="trip-sos">
         <SosHoldButton onConfirm={onSOS} />
-        <span className="sos-side-spacer" aria-hidden />
+        <span className="trip-sos-cap">Emergency? Hold to alert your contacts</span>
+      </div>
+
+      {/* Demo aids, clearly secondary and below the rider's real actions. */}
+      <div className="trip-demo-row">
+        <button className="demo-side" onClick={onSimulate} title="Demo only: fake a distress spike">Demo ⚡ fake distress</button>
       </div>
     </>
   );
@@ -1066,8 +1147,80 @@ function SosHoldButton({ onConfirm }: { onConfirm: () => void }) {
       <span className="sos-hold-core">
         <span className="sos-hold-txt">SOS</span>
       </span>
-      <span className="sos-hold-hint">hold</span>
     </button>
+  );
+}
+
+function SideMenu({ open, focusContacts, isMonitoring, onClose, contacts, onSaveContacts, onSOS, onShare, onOpenDashboard, onTest }: any) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  useEffect(() => {
+    // Opening via the header's "Emergency contacts" button jumps straight to
+    // the add form; the hamburger just opens the plain menu.
+    if (open && focusContacts) setAdding(true);
+  }, [open, focusContacts]);
+  if (!open) return null;
+  const list: EmergencyContact[] = contacts || [];
+  const save = (n: EmergencyContact[]) => onSaveContacts(n);
+  const add = () => {
+    if (!name.trim() || phone.trim().length < 8) return;
+    save([...list, { id: `ec_${Date.now()}`, name: name.trim(), relationship: "Contact", phone: phone.trim(), email: email.trim() || undefined, isPrimary: false, autoCallOnSos: true, autoSmsGpsOnSos: true }]);
+    setName(""); setPhone(""); setEmail(""); setAdding(false);
+  };
+  return (
+    <div className="menu-root">
+      <div className="menu-backdrop" onClick={onClose} />
+      <aside className="sidemenu" role="dialog" aria-modal="true">
+        <div className="menu-head">
+          <span className="menu-title">Menu</span>
+          <button className="menu-close" onClick={onClose} aria-label="Close menu"><X style={{ width: 18, height: 18 }} /></button>
+        </div>
+
+        {/* Emergency sits at the top, but the real send is always the
+            deliberate hold - never the button that opened this panel. */}
+        <div className="menu-sos">
+          <SosHoldButton onConfirm={onSOS} />
+          <span className="menu-sos-cap">Hold to send SOS with your live location</span>
+        </div>
+
+        {/* Contacts are the primary action, so the section sits directly under
+            SOS - above the secondary tools (share / dial / test) below. */}
+        <div className="menu-sec">
+          <div className="menu-sec-head">
+            <span>Emergency contacts</span>
+            <button className="menu-add" onClick={() => setAdding((v) => !v)}>{adding ? "Cancel" : "+ Add"}</button>
+          </div>
+          {list.length === 0 && !adding && (
+            <p className="menu-empty">No contacts yet. Add someone to alert if you send an SOS.</p>
+          )}
+          {list.map((c) => (
+            <div className="menu-row" key={c.id}>
+              <div className="grow"><div className="t">{c.name}</div><div className="s">{c.phone}</div></div>
+              <button className="menu-del" onClick={() => save(list.filter((x) => x.id !== c.id))} aria-label="Remove contact">✕</button>
+            </div>
+          ))}
+          {adding && (
+            <div className="menu-form">
+              <div className="menu-form-row">
+                <input className="input" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+                <input className="input" placeholder="+92 3xx xxxxxxx" value={phone} onChange={(e) => setPhone(e.target.value)} />
+              </div>
+              <input className="input" placeholder="Email (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <button className="menu-add-btn" onClick={add} disabled={!name.trim() || phone.trim().length < 8}>+ Add contact</button>
+            </div>
+          )}
+        </div>
+
+        <div className="menu-list">
+          <button className="menu-item" onClick={onShare}><Share2 style={{ width: 18, height: 18 }} /><span className="grow">Share my live location</span></button>
+          <button className="menu-item" onClick={onOpenDashboard}><Gauge style={{ width: 18, height: 18 }} /><span className="grow">Check the safety dial</span></button>
+          <button className="menu-item" onClick={onTest}><Mic style={{ width: 18, height: 18 }} /><span className="grow">Test if AI is listening</span></button>
+          <p className="menu-test-status">{isMonitoring ? "🎙️ Listening. Say something and watch the dial move." : "Tap to start the mic, then speak to see it react."}</p>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -1089,8 +1242,9 @@ function SosPromptSheet({ open, reason, countdown, onSafe, onNow }: any) {
 
 function SosResultsSheet({ open, result, contacts, onClose }: any) {
   return (
-    <BottomSheet open={open}>
+    <BottomSheet open={open} onClose={onClose} dark>
       <p className="sheet-title">SOS sent</p>
+      <p className="sub" style={{ marginTop: -4 }}>Here's what went out, and who to call right now.</p>
       {result?.liveLink && (
         <div className="banner info"><span className="grow">Live tracking: </span><a href={result.liveLink} target="_blank" rel="noreferrer" style={{ fontWeight: 800 }}>open live map</a></div>
       )}
@@ -1105,12 +1259,13 @@ function SosResultsSheet({ open, result, contacts, onClose }: any) {
       {!result?.success && result?.error && (
         <div className="banner bad"><span className="grow">Dispatch server unreachable - dial manually below.</span></div>
       )}
+      <p className="menu-callhead">Call for help yourself:</p>
       {contacts.filter((c: EmergencyContact) => c.autoCallOnSos).map((c: EmergencyContact) => (
         <a key={c.id} className="btn" href={`tel:${c.phone.replace(/\s/g, "")}`}>Call {c.name}</a>
       ))}
       <div className="btn-row">
-        <a className="btn danger" href="tel:15">Police 15</a>
-        <a className="btn" href="tel:1122">Rescue 1122</a>
+        <a className="btn danger" href="tel:15">Call Police 15</a>
+        <a className="btn" href="tel:1122">Call Rescue 1122</a>
       </div>
       {/* Deliberately NO post-dispatch "stand down" button: once contacts are
           alerted, a snatched phone must not be able to silently cancel it.
@@ -1120,50 +1275,10 @@ function SosResultsSheet({ open, result, contacts, onClose }: any) {
   );
 }
 
-function ContactsSheet({ open, contacts, onClose, onSave }: any) {
-  const [draftName, setDraftName] = useState("");
-  const [draftPhone, setDraftPhone] = useState("");
-  const [draftEmail, setDraftEmail] = useState("");
-  const [list, setList] = useState<EmergencyContact[]>(contacts);
-  useEffect(() => { if (open) setList(contacts); }, [open, contacts]);
+// (ContactsSheet bottom sheet removed 2026-10-23: emergency contacts are now
+//  managed inline in the Safety drawer, so no second sheet slides up from the
+//  bottom.)
 
-  const persist = (n: EmergencyContact[]) => { setList(n); onSave(n); };
-
-  return (
-    <BottomSheet open={open} onClose={onClose}>
-      <p className="sheet-title">Emergency contacts</p>
-      {list.map((c) => (
-        <div className="row" key={c.id}>
-          <div className="grow"><div className="t">{c.name}</div><div className="s">{c.phone}{c.email ? ' | ' + c.email : ''}</div></div>
-          <button
-            className={"chip " + (c.autoSmsGpsOnSos ? "ok" : "gray")}
-            onClick={() => persist(list.map((x) => (x.id === c.id ? { ...x, autoSmsGpsOnSos: !x.autoSmsGpsOnSos, autoCallOnSos: !x.autoSmsGpsOnSos } : x)))}
-          >
-            {c.autoSmsGpsOnSos ? "auto-notify on" : "auto-notify off"}
-          </button>
-          <button className="icon-btn" onClick={() => persist(list.filter((x) => x.id !== c.id))}>✕</button>
-        </div>
-      ))}
-      <div style={{ display: "flex", gap: 8 }}>
-        <input className="input" placeholder="Name" value={draftName} onChange={(e) => setDraftName(e.target.value)} />
-        <input className="input" placeholder="+92…" value={draftPhone} onChange={(e) => setDraftPhone(e.target.value)} />
-      </div>
-      <input className="input" placeholder="email (for SOS alerts)" value={draftEmail} onChange={(e) => setDraftEmail(e.target.value)} style={{ marginTop: 6 }} />
-      <button
-        className="btn ghost"
-        style={{ minHeight: 44 }}
-        disabled={!draftName.trim() || draftPhone.trim().length < 8}
-        onClick={() => {
-          persist([...list, { id: `ec_${Date.now()}`, name: draftName.trim(), relationship: "Contact", phone: draftPhone.trim(), email: draftEmail.trim() || undefined, isPrimary: false, autoCallOnSos: true, autoSmsGpsOnSos: true }]);
-          setDraftName(""); setDraftPhone(""); setDraftEmail("");
-        }}
-      >
-        + Add
-      </button>
-      <button className="btn primary" onClick={onClose}>Done</button>
-    </BottomSheet>
-  );
-}
 
 // Permission priming (ported from the desktop app's privacy explainer): the
 // rider is told what the mic does - and does not do - BEFORE the browser
@@ -1172,17 +1287,22 @@ function PermissionSheet({ open, onAllow, onSkip }: any) {
   return (
     <BottomSheet open={open}>
       <p className="sheet-title">Turn on your safety shield</p>
-      <p className="sub">
-        From the moment you board, Abhi AI listens for danger sounds and words of
-        distress - screams, “bachao”, “gaadi roko”. It reacts in the cabin and it
-        never records or uploads your conversation.
+      <p className="sub shield-lede">
+        From the moment you board, Abhi AI listens for danger sounds and distress
+        words like screams, “bachao” and “gaadi roko”, then reacts in real time.
       </p>
-      <p className="sub">
-        Your browser will ask for two permissions: <b>Mic</b> (to hear for distress)
-        and <b>Location</b> (so “Share my location” and SOS can send where you
-        actually are). Choose Allow on both.
-      </p>
-      <button className="btn primary" onClick={onAllow}>Allow mic &amp; location - start watching</button>
+      <div className="shield-perms">
+        <div className="shield-perm">
+          <span className="shield-perm-ic"><Mic style={{ width: 18, height: 18 }} /></span>
+          <div className="shield-perm-txt"><b>Mic</b><span>To hear for distress</span></div>
+        </div>
+        <div className="shield-perm">
+          <span className="shield-perm-ic"><MapPin style={{ width: 18, height: 18 }} /></span>
+          <div className="shield-perm-txt"><b>Location</b><span>So SOS can share where you are</span></div>
+        </div>
+      </div>
+      <p className="shield-note">Your browser will ask twice. Tap <b>Allow</b> on both.</p>
+      <button className="btn primary" onClick={onAllow}>Allow &amp; start watching</button>
       <button className="btn ghost" onClick={onSkip}>Ride without monitoring</button>
     </BottomSheet>
   );
@@ -1196,7 +1316,7 @@ function DashboardSheet({ open, onClose }: any) {
     <BottomSheet open={open} onClose={onClose}>
       <p className="sheet-title">Live AI dashboard</p>
       <p className="sub">The audio brain's own board: dial, per-chunk analysis, journey log.</p>
-      <iframe className="dash-frame" src={`http://${BRAIN_HOST}:5004`} title="Abhi AI dashboard" />
+      <iframe className="dash-frame" src={`http://${BRAIN_HOST}:5004`} title="Abhi AI dashboard" allow="microphone; autoplay; clipboard-write" />
       <button className="btn ghost" onClick={onClose}>Close</button>
     </BottomSheet>
   );

@@ -67,6 +67,12 @@ export function useAudioSafety(
   const monitoringRef = useRef(false);
   // Three consecutive upload failures = the brain is gone. One success resets it.
   const failStreakRef = useRef(0);
+  // Browser-side live transcription (Web Speech API). The Python brain has no
+  // speech-to-text, so this hook is the ONLY thing that can put spoken words
+  // in front of the dial. heardSinceChunkRef holds the words captured since
+  // the last chunk was uploaded; recogRef is the running recogniser.
+  const heardSinceChunkRef = useRef("");
+  const recogRef = useRef<any>(null);
 
   const sendChunk = useCallback(async (wavBlob: Blob, idx: number) => {
     if (!monitoringRef.current) return;
@@ -74,6 +80,13 @@ export function useAudioSafety(
     form.append("audio", wavBlob, `chunk_${idx}.wav`);
     form.append("journey_id", journeyIdRef.current);
     form.append("chunk_index", String(idx));
+    // Forward the words heard since the last chunk. server.py runs distress-
+    // keyword matching (match_words) on this to set word_severity, so spoken
+    // "help"/"bachao" can now actually raise the dial. Without this the mic
+    // was acoustics-only and distress words were ignored.
+    const words = heardSinceChunkRef.current.trim();
+    heardSinceChunkRef.current = "";
+    form.append("transcript", words);
 
     try {
       const res = await fetch(`${AUDIO_SERVER}/upload_chunk`, { method: "POST", body: form });
@@ -88,9 +101,8 @@ export function useAudioSafety(
       const score = Math.min(100, (data.dial_score / DIAL_FULL_SCALE) * 100);
       setDistressScore(score);
 
-      if (data.transcript) {
-        setTranscript((prev) => prev + " " + data.transcript);
-      }
+      // Transcript state is driven by the browser recogniser below (the source
+      // of truth), not echoed back from the brain, so we don't double-count.
 
       // Threat level follows the BRAIN's own dial label, so the app and the
       // engine can never disagree. Evidence must come from the dial.
@@ -200,6 +212,35 @@ export function useAudioSafety(
         sendChunk(wav, chunkIdxRef.current++);
       }, 3000);
 
+      // Start live transcription. Final utterances are shown to the rider and
+      // forwarded to the brain on the next chunk. Restarts itself if the engine
+      // auto-stops; silently no-ops where Web Speech is unsupported.
+      try {
+        const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SR) {
+          const rec = new SR();
+          rec.continuous = true;
+          rec.interimResults = true;
+          rec.lang = (import.meta.env.VITE_SPEECH_LANG as string) || "en-US";
+          rec.onresult = (ev: any) => {
+            for (let i = ev.resultIndex; i < ev.results.length; i++) {
+              const res = ev.results[i];
+              if (res.isFinal) {
+                const txt = String(res[0].transcript || "").trim();
+                if (txt) {
+                  heardSinceChunkRef.current += " " + txt;
+                  setTranscript((prev) => (prev + " " + txt).slice(-400));
+                }
+              }
+            }
+          };
+          rec.onerror = () => { /* denied / no-speech: acoustics keep running */ };
+          rec.onend = () => { if (monitoringRef.current) { try { rec.start(); } catch { /* already running */ } } };
+          rec.start();
+          recogRef.current = rec;
+        }
+      } catch { /* unsupported browser: acoustic-only, no words */ }
+
       setIsMonitoring(true);
       setMonitorStatus("live");
     } catch (err) {
@@ -215,6 +256,12 @@ export function useAudioSafety(
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (processorRef.current) { processorRef.current.disconnect(); processorRef.current = null; }
     if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
+    if (recogRef.current) {
+      try { recogRef.current.onend = null; recogRef.current.stop(); } catch { /* ignore */ }
+      recogRef.current = null;
+    }
+    heardSinceChunkRef.current = "";
+    setTranscript("");
 
     if (journeyIdRef.current) {
       fetch(`${AUDIO_SERVER}/stop_session`, {

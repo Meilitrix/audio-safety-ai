@@ -315,7 +315,8 @@ class DangerScorer:
         return 0.0
 
     def process_chunk(self, word_severity=0, energy=0.0, peak=0.0,
-                      yamnet_top_name="", model_danger_prob=0.0):
+                      yamnet_top_name="", model_danger_prob=0.0,
+                      scream_pitch=False):
         """
         Process one 3-second chunk through the full scoring pipeline.
 
@@ -327,6 +328,8 @@ class DangerScorer:
         yamnet_top_name : str    (top YAMNet class name)
         model_danger_prob : float 0..1  (P(danger) from the journey-trained
             chunk model; 0 disables it -> identical to prior behaviour)
+        scream_pitch : bool      (the pitch detector saw sustained high-F0
+            vocalisation, i.e. a genuine scream, not a short loud burst)
 
         Returns dict with full scoring breakdown.
         """
@@ -335,11 +338,28 @@ class DangerScorer:
         event = self.detect_event_anomaly(energy, peak, yamnet_top_name,
                                           voice_severity=voice_sev)
 
-        # Step 2: Base points
         word_pts = float(word_severity)        # 0-3
-        voice_pts = float(voice_sev)           # 0-2
         event_pts = float(event["severity"])   # 0-2
         model_pts = self._model_points(model_danger_prob)  # 0-2 (journey model)
+
+        # ── Cough / sneeze / slam guard ──
+        # The voice channel reads ONLY energy + peak, so any short loud burst -
+        # a cough, a sneeze, a door slam - crosses the "screaming" thresholds
+        # and would, on its own, set the 60s distress floor and climb the dial.
+        # Loudness is not evidence by itself: it counts as a scream only when
+        # something independent agrees (sustained high pitch, a YAMNet vocal-
+        # distress label, a distress word, or the trained model's vote).
+        # Uncorroborated, it is downgraded to "raised voice", which is not a
+        # strong signal and cannot set the floor. A real scream keeps its 2
+        # because YAMNet labels it Scream/Shriek/Bellow (event) and/or the
+        # pitch detector sees sustained high F0.
+        scream_corroborated = (scream_pitch or event_pts >= 2 or
+                               word_pts >= 2 or model_pts > 0)
+        if voice_sev >= 2 and not scream_corroborated:
+            voice_sev = 1
+
+        # Step 2: Base points
+        voice_pts = float(voice_sev)           # 0-2
         base_sum = word_pts + voice_pts + event_pts + model_pts
 
         # Step 3: Repetition bonus (Rule 2)
