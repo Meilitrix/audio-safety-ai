@@ -93,9 +93,9 @@ export const POPULAR_LOCATIONS: LocationItem[] = [
   },
   {
     id: "loc_i9_fm",
-    title: "Faisal Movers Terminal, I-9",
-    subtitle: "Murree Road Interchange",
-    address: "I-9, Islamabad",
+    title: "Faisal Movers Terminal, I-11/I-12",
+    subtitle: "Expressway Service Road South",
+    address: "Service Road South, I-12, Islamabad",
     lat: 33.6151,
     lng: 72.9917,
     city: "Islamabad",
